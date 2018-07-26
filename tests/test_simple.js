@@ -30,14 +30,14 @@ unit.add(module, [
       async.done();
     });
 
-    s2.push('a');
-    s2.push('b');
-    s2.push('c');
-    s2.push(null);
-    s1.push(1);
-    s1.push(2);
-    s1.push(3);
-    s1.push(null);
+    s2.write('a');
+    s2.write('b');
+    s2.write('c');
+    s2.end();
+    s1.write(1);
+    s1.write(2);
+    s1.write(3);
+    s1.end();
   },
   function test_simple2_mixed(t) {
     const async = t.startAsync('test_simple2_mixed');
@@ -52,14 +52,14 @@ unit.add(module, [
       async.done();
     });
 
-    s2.push('a');
-    s1.push(1);
-    s1.push(2);
-    s2.push('b');
-    s2.push('c');
-    s2.push(null);
-    s1.push(3);
-    s1.push(null);
+    s2.write('a');
+    s1.write(1);
+    s1.write(2);
+    s2.write('b');
+    s2.write('c');
+    s2.end();
+    s1.write(3);
+    s1.end();
   },
   function test_simple2_uneven1(t) {
     const async = t.startAsync('test_simple2_uneven1');
@@ -74,14 +74,14 @@ unit.add(module, [
       async.done();
     });
 
-    s2.push('a');
-    s1.push(1);
-    s1.push(2);
-    s2.push('b');
-    s1.push(3);
-    s2.push(null);
-    s1.push(4);
-    s1.push(null);
+    s2.write('a');
+    s1.write(1);
+    s1.write(2);
+    s2.write('b');
+    s1.write(3);
+    s2.end();
+    s1.write(4);
+    s1.end();
   },
   function test_simple2_uneven2(t) {
     const async = t.startAsync('test_simple2_uneven2');
@@ -96,13 +96,13 @@ unit.add(module, [
       async.done();
     });
 
-    s2.push('a');
-    s1.push(1);
-    s2.push('b');
-    s1.push(2);
-    s2.push('c');
-    s2.push('d');
-    s2.push(null);
-    s1.push(null);
+    s2.write('a');
+    s1.write(1);
+    s2.write('b');
+    s1.write(2);
+    s2.write('c');
+    s2.write('d');
+    s2.end();
+    s1.end();
   }
 ]);

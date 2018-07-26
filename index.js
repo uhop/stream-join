@@ -16,6 +16,8 @@ const join = (streams, options) => {
     streams.forEach(s => s.on('error', error => result.emit('error', error)));
   }
 
+  const mergeItems = options && typeof options.mergeItems == 'function' ? options.mergeItems : (items => result.push(items));
+
   streams.forEach(s => s.pause());
 
   let items = new Array(streams.length),
@@ -23,15 +25,19 @@ const join = (streams, options) => {
     done = 0;
   items.fill(null);
 
+  const processItems = index => {
+    streams.forEach((s, i) => i !== index && items[i] !== null && s.resume());
+    mergeItems(items);
+    items = new Array(streams.length);
+    items.fill(null);
+    filled = 0;
+  };
+
   const onData = index => item => {
     items[index] = item;
     ++filled;
     if (filled + done === items.length) {
-      streams.forEach((s, i) => i !== index && items[i] !== null && s.resume());
-      result.push(items);
-      items = new Array(streams.length);
-      items.fill(null);
-      filled = 0;
+      processItems(index);
     } else {
       streams[index].pause();
     }
@@ -40,11 +46,7 @@ const join = (streams, options) => {
   const onEnd = () => {
     ++done;
     if (filled && filled + done === items.length) {
-      streams.forEach((s, i) => items[i] !== null && s.resume());
-      result.push(items);
-      items = new Array(streams.length);
-      items.fill(null);
-      filled = 0;
+      processItems(-1);
     }
     if (done === items.length) {
       result.push(null);
