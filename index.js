@@ -16,7 +16,7 @@ const join = (streams, options) => {
     streams.forEach(s => s.on('error', error => result.emit('error', error)));
   }
 
-  const mergeItems = options && typeof options.mergeItems == 'function' ? options.mergeItems : (items => result.push(items));
+  const mergeItems = options && typeof options.mergeItems == 'function' ? options.mergeItems : ((result, items) => result.push(items));
 
   streams.forEach(s => s.pause());
 
@@ -27,7 +27,7 @@ const join = (streams, options) => {
 
   const processItems = index => {
     streams.forEach((s, i) => i !== index && items[i] !== null && s.resume());
-    mergeItems(items);
+    mergeItems(result, items);
     items = new Array(streams.length);
     items.fill(null);
     filled = 0;
