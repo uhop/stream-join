@@ -1,4 +1,4 @@
-# stream-chain
+# stream-join
 
 [![Build status][travis-image]][travis-url]
 [![Dependencies][deps-image]][deps-url]
