@@ -3,7 +3,7 @@
 const {Readable} = require('stream');
 
 const join = (streams, options) => {
-  const result = new Readable(
+  const output = new Readable(
     Object.assign({}, options, {
       objectMode: true,
       read() {
@@ -13,10 +13,10 @@ const join = (streams, options) => {
   );
 
   if (!options || !options.skipEvents) {
-    streams.forEach(s => s.on('error', error => result.emit('error', error)));
+    streams.forEach(s => s.on('error', error => output.emit('error', error)));
   }
 
-  const mergeItems = options && typeof options.mergeItems == 'function' ? options.mergeItems : ((result, items) => result.push(items));
+  const joinItems = options && typeof options.joinItems == 'function' ? options.joinItems : ((output, items) => output.push(items));
 
   streams.forEach(s => s.pause());
 
@@ -27,7 +27,7 @@ const join = (streams, options) => {
 
   const processItems = index => {
     streams.forEach((s, i) => i !== index && items[i] !== null && s.resume());
-    mergeItems(result, items);
+    joinItems(output, items);
     items = new Array(streams.length);
     items.fill(null);
     filled = 0;
@@ -49,7 +49,7 @@ const join = (streams, options) => {
       processItems(-1);
     }
     if (done === items.length) {
-      result.push(null);
+      output.push(null);
     }
   };
 
@@ -58,7 +58,7 @@ const join = (streams, options) => {
     s.on('end', onEnd);
   });
 
-  return result;
+  return output;
 };
 
 module.exports = join;

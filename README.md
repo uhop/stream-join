@@ -42,6 +42,36 @@ s1.end();
 // [4, null]
 ```
 
+The joining of items can be controlled with a function. Given the setup above:
+
+```js
+const s1 = new PassThrough(), s2 = new PassThrough(),
+  result = join([s1, s2], {
+    joinItems(output, items) {
+      // a variable number of values is pushed out
+      items.forEach(item => {
+        // we should push only non-null values
+        if (item !== null) output.push(item);
+      });
+    }
+  });
+
+result.on('data', data => console.log(data));
+
+// all streams are written asynchronously
+s2.write('a');
+s1.write(1);
+s1.write(2);
+s2.write('b');
+s1.write(3);
+s2.end();
+s1.write(4);
+s1.end();
+
+// now we normalized the order of values
+// prints: 1, 'a', 2, 'b', 3, 4
+```
+
 ## Installation
 
 ```bash
@@ -68,7 +98,13 @@ Where:
     * `read()` is replaced with an internal implementation.
   * The following custom properties are recognized:
     * `skipEvents` is an optional flag. If it is falsy (the default), `'error'` events from all streams are forwarded to `result`. If it is truthy, no event forwarding is made. A user can always do so manually.
+    * `joinItems(output, items)` is an optional function. It can be used to combine individual values together. It may push to the output 0 or more values. It returns no value and takes two arguments:
+      * `output` is a `result` object described below. It can be used to push values with a method `push()`.
+        * *Warning:* never push out `null` values because they indicate that a stream has been finished and should be closed.
+      * `items` is an array of values. It has the same length as `streams` and contains values from corresponding streams. If a corresponding stream has ended, `null` is going to be used as a value.
 * `result` is an object mode [Readable](https://nodejs.org/api/stream.html#stream_readable_streams) stream, which produces combined values.
+
+See the Introduction above for examples of how to use `stream-join`.
 
 ## Release History
 
