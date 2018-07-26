@@ -5,15 +5,15 @@
 [![devDependencies][dev-deps-image]][dev-deps-url]
 [![NPM version][npm-image]][npm-url]
 
-`stream-join` is a function, which takes an array of object mode [Readable](https://nodejs.org/api/stream.html#stream_readable_streams) streams and returns a combined object mode `Readable` stream of arrays, which pack together corresponding values from input streams, while properly handling [backpressure](https://nodejs.org/en/docs/guides/backpressuring-in-streams/).
+`stream-join` is a function, which takes an array of object mode [Readable](https://nodejs.org/api/stream.html#stream_readable_streams) streams and returns a combined object mode `Readable` stream, which pack together corresponding values from input streams, while properly handling [backpressure](https://nodejs.org/en/docs/guides/backpressuring-in-streams/).
 
-Originally `stream-join` was used with [stream-json](https://www.npmjs.com/package/stream-json) to create flexible data processing pipelines, but can be used stand-alone.
+Originally `stream-join` was used with [stream-json](https://www.npmjs.com/package/stream-json) to create and eventually join side-channels but can be used stand-alone.
 
 `stream-join` is a lightweight, no-dependencies micro-package. It is distributed under New BSD license.
 
 ## Intro
 
-`stream-join` creates a stream of arrays of values. The first array contains the first values of all streams and the `N`th value comes from the `N`th stream. Their respective order doesn't matter. The second array will contain the second values of all streams. And so on. If the corresponding stream has ended, `null` is going to be used as its value (object mode streams cannot use `null` values because it indicates the end-of-stream). The resulting stream will end when all streams have ended.
+By default `stream-join` creates a stream of arrays of values. The first array contains the first values of all streams and the `N`th array value comes from the `N`th stream. Their respective order doesn't matter. The second array will contain the second values of all streams. And so on. If the corresponding stream has ended, `null` is going to be used as its value (object mode streams cannot use `null` values because it indicates the end-of-stream). The resulting stream will end when all streams have ended.
 
 ```js
 const join = require('stream-join');
@@ -42,7 +42,7 @@ s1.end();
 // [4, null]
 ```
 
-The joining of items can be controlled with a function. Given the setup above:
+The output can be controlled by a custom joining function. Given the setup above:
 
 ```js
 const s1 = new PassThrough(), s2 = new PassThrough(),
