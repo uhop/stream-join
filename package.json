@@ -1,6 +1,6 @@
 {
   "name": "stream-join",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "stream-join is the micro-module to join values of multiple streams together.",
   "homepage": "http://github.com/uhop/stream-join",
   "bugs": "http://github.com/uhop/stream-join/issues",
@@ -24,5 +24,9 @@
     "streaming"
   ],
   "author": "Eugene Lazutkin <eugene.lazutkin@gmail.com> (http://lazutkin.com/)",
-  "license": "BSD-3-Clause"
+  "license": "BSD-3-Clause",
+  "files": [
+    "/*.js",
+    "/utils"
+  ]
 }
