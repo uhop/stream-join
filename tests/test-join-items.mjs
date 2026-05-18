@@ -77,3 +77,21 @@ test.asPromise('joinItems: receives null markers for ended streams', async (t, r
   ]);
   resolve();
 });
+
+test.asPromise('joinItems: async callback is awaited per round', async (t, resolve) => {
+  let order = '';
+  const result = join([streamFromArray([1, 2, 3]), streamFromArray(['a', 'b', 'c'])], {
+    async joinItems(sink, items) {
+      order += '<';
+      await Promise.resolve();
+      order += '>';
+      sink.push(items.join('-'));
+    }
+  });
+  const output = await streamToArrayOnce(result);
+  t.deepEqual(output, ['1-a', '2-b', '3-c']);
+  // `<>` interleaving (never `<<>>` or similar) confirms each round's async work
+  // completed before the next round started.
+  t.equal(order, '<><><>');
+  resolve();
+});
