@@ -1,0 +1,184 @@
+# stream-join
+
+> A micro-library that joins values from multiple object-mode Readable streams into a single object-mode Readable, with proper backpressure handling. Built on `stream-chain` and a sibling to `stream-chain`, `stream-fork`, `stream-json`, and the rest of the `object-stream` family.
+
+- Single public function: `join(streams[, options])`
+- Per-round zip semantics: one value per non-ended input stream; ended streams contribute `null`
+- Optional `joinItems(sink, items)` callback collapses or expands per-round values
+- Output Readable is `objectMode: true` (always)
+- Backpressure flows naturally through `stream-chain`'s `readableFrom`
+- Error propagation: original input-stream `'error'` is preserved across Node's async-iterator AbortError wrapper
+
+## Quick start
+
+```bash
+npm i stream-join
+```
+
+```js
+import join from 'stream-join';
+import {Readable} from 'node:stream';
+
+const s1 = Readable.from([1, 2, 3]);
+const s2 = Readable.from(['a', 'b', 'c']);
+
+const result = join([s1, s2]);
+result.on('data', x => console.log(x));
+// Output: [1, 'a'], [2, 'b'], [3, 'c']
+```
+
+## Importing
+
+```js
+// ESM (default export)
+import join from 'stream-join';
+
+// CommonJS
+const join = require('stream-join');
+```
+
+The package is `"type": "commonjs"` and ships a CJS entry. Modern Node (22+) consumes it from both ESM and CJS without ceremony.
+
+## API
+
+### join(streams[, options])
+
+Joins an array of object-mode Readable streams into a single object-mode Readable.
+
+- `streams` (array, required) — non-empty array of object-mode `Readable` streams.
+- `options` (object, optional) — passed through to `Readable` (see [Node's docs](https://nodejs.org/api/stream.html#new-streamreadableoptions)) plus the following:
+  - `joinItems(sink, items)` — optional. Called once per round with the per-stream values. `sink.push(value)` may be called 0 or more times to emit per-round outputs. Default: `(sink, items) => sink.push(items)` (emits the items array as a single output value).
+- Returns: a Readable stream (`objectMode: true`).
+
+#### Round semantics
+
+Each iteration ("round") pulls one value from every non-ended input stream concurrently via `Promise.all(iters.map(it => it.next()))`. The resulting `items` array has the same positional order as `streams`. A `null` in `items` means the corresponding stream has ended (object-mode streams cannot otherwise emit `null` because Node reserves it for end-of-stream).
+
+The iteration stops when all streams have ended.
+
+#### joinItems
+
+The default `joinItems` emits each round's items array as a single value:
+
+```js
+join([s1, s2])
+// emits: [v1_round1, v2_round1], [v1_round2, v2_round2], ...
+```
+
+Custom callbacks can push 0, 1, or many values per round:
+
+```js
+// Concatenate per-round values with a separator
+join([s1, s2, s3], {
+  joinItems(sink, items) {
+    sink.push(items.join('-'));
+  }
+});
+
+// Emit non-null items individually (flattens the streams together)
+join([s1, s2], {
+  joinItems(sink, items) {
+    if (items[0] !== null) sink.push(items[0]);
+    if (items[1] !== null) sink.push(items[1]);
+  }
+});
+
+// Skip rounds conditionally
+join([s1, s2], {
+  joinItems(sink, items) {
+    if (items[0] !== null && items[0] % 2 === 0) {
+      sink.push(items[0] + items[1]);
+    }
+  }
+});
+```
+
+#### Errors
+
+If any input stream emits `'error'`, the original error is propagated to the output stream's `'error'` event. The output is destroyed; further data events are not emitted.
+
+The legacy `skipEvents` option from 1.x is accepted for backwards compatibility but is a no-op in 2.x — errors always propagate. (1.x used a separate explicit error-forwarding listener; in 2.x the async-iterator path always surfaces errors, so suppressing them would require swallowing legitimate iterator failures.)
+
+## Composition with stream-chain
+
+`stream-join` returns a plain Readable, so it slots naturally into a `stream-chain` pipeline as the first item:
+
+```js
+import chain from 'stream-chain';
+import join from 'stream-join';
+import {Readable} from 'node:stream';
+
+const pipeline = chain([
+  join([Readable.from([1, 2, 3]), Readable.from([10, 20, 30])]),
+  ([a, b]) => a + b,
+  x => x * 2
+]);
+
+pipeline.on('data', x => console.log(x));
+// Output: 22, 44, 66
+```
+
+Custom `joinItems` works inside chains too:
+
+```js
+chain([
+  join([Readable.from(['a', 'b']), Readable.from(['x', 'y'])], {
+    joinItems(sink, items) {
+      sink.push(items[0]);
+      sink.push(items[1]);
+    }
+  }),
+  s => s.toUpperCase()
+]);
+// Output: 'A', 'X', 'B', 'Y'
+```
+
+## Common patterns
+
+### Zipping two streams with mismatched lengths
+
+```js
+const s1 = Readable.from([1, 2, 3, 4]);
+const s2 = Readable.from(['a', 'b']);
+
+join([s1, s2]);
+// emits: [1, 'a'], [2, 'b'], [3, null], [4, null]
+```
+
+### Side-by-side aggregation
+
+```js
+join([requestStream, responseStream], {
+  joinItems(sink, [req, res]) {
+    if (req !== null && res !== null) {
+      sink.push({req, res});
+    }
+  }
+});
+```
+
+### Joining N streams into a CSV-like row stream
+
+```js
+join([colA, colB, colC], {
+  joinItems(sink, items) {
+    sink.push(items.map(v => v ?? '').join(','));
+  }
+});
+```
+
+## Notable changes from 1.x to 2.x
+
+- **Built on `stream-chain`.** The hand-rolled `Readable` + per-stream pause/resume mechanics from 1.x are gone; the implementation now uses `stream-chain/utils/readableFrom` driven by an async generator.
+- **`stream-chain` is a runtime dependency.**
+- **Node 22+ required.**
+- **`skipEvents` is now a no-op.** Errors always propagate via the async-iterator path. The option remains accepted as a courtesy to 1.x callers but does nothing.
+- **The `joinItems` sink parameter is now called `sink`** in docs/tests but its shape (`sink.push(value)`) is unchanged.
+
+The public surface (`join(streams, options)` returning a Readable) is otherwise unchanged.
+
+## Links
+
+- Repository: https://github.com/uhop/stream-join
+- npm: https://www.npmjs.com/package/stream-join
+- Wiki: https://github.com/uhop/stream-join/wiki

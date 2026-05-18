@@ -3,108 +3,111 @@
 [npm-img]: https://img.shields.io/npm/v/stream-join.svg
 [npm-url]: https://npmjs.org/package/stream-join
 
-`stream-join` is a function, which takes an array of object mode [Readable](https://nodejs.org/api/stream.html#stream_readable_streams) streams and returns a combined object mode `Readable` stream, which pack together corresponding values from input streams, while properly handling [backpressure](https://nodejs.org/en/docs/guides/backpressuring-in-streams/).
+`stream-join` joins values from multiple object-mode [Readable](https://nodejs.org/api/stream.html#stream_readable_streams) streams into a single object-mode `Readable`, while properly handling [backpressure](https://nodejs.org/en/learn/modules/backpressuring-in-streams). Per round, one value is pulled from each non-ended input; ended streams contribute `null`. An optional `joinItems` callback combines per-round values into zero or more output values.
 
-Originally `stream-join` was used with [stream-json](https://www.npmjs.com/package/stream-json) to create and eventually join side-channels but can be used stand-alone.
-
-`stream-join` is a lightweight, no-dependencies micro-package. It is distributed under New BSD license.
-
-## Intro
-
-By default `stream-join` creates a stream of arrays of values. The first array contains the first values of all streams and the `N`th array value comes from the `N`th stream. Their respective order doesn't matter. The second array will contain the second values of all streams. And so on. If the corresponding stream has ended, `null` is going to be used as its value (object mode streams cannot use `null` values because it indicates the end-of-stream). The resulting stream will end when all streams have ended.
-
-```js
-const join = require('stream-join');
-
-const {PassThrough} = require('stream-join/tests/helpers');
-
-const s1 = new PassThrough(), s2 = new PassThrough(),
-  result = join([s1, s2]);
-
-result.on('data', data => console.log(data));
-
-// all streams are written asynchronously
-s2.write('a');
-s1.write(1);
-s1.write(2);
-s2.write('b');
-s1.write(3);
-s2.end();
-s1.write(4);
-s1.end();
-
-// prints:
-// [1, 'a']
-// [2, 'b']
-// [3, null] // s2 has ended
-// [4, null]
-```
-
-The output can be controlled by a custom joining function. Given the setup above:
-
-```js
-const s1 = new PassThrough(), s2 = new PassThrough(),
-  result = join([s1, s2], {
-    joinItems(output, items) {
-      // a variable number of values is pushed out
-      items.forEach(item => {
-        // we should push only non-null values
-        if (item !== null) output.push(item);
-      });
-    }
-  });
-
-result.on('data', data => console.log(data));
-
-// all streams are written asynchronously
-s2.write('a');
-s1.write(1);
-s1.write(2);
-s2.write('b');
-s1.write(3);
-s2.end();
-s1.write(4);
-s1.end();
-
-// now we normalized the order of values
-// prints: 1, 'a', 2, 'b', 3, 4
-```
+`stream-join` is a lightweight micro-package built on [`stream-chain`](https://www.npmjs.com/package/stream-chain) — its sole runtime dependency. It is distributed under New BSD license.
 
 ## Installation
 
 ```bash
-npm i --save stream-join
-# or: yarn add stream-join
+npm i stream-join
 ```
 
-## Documentation
-
-The module returns a function, whose prototype is:
+## Usage
 
 ```js
-const join = require('stream-join');
+import join from 'stream-join';
+import {Readable} from 'node:stream';
+
+const s1 = Readable.from([1, 2, 3]);
+const s2 = Readable.from(['a', 'b', 'c']);
+
+const result = join([s1, s2]);
+result.on('data', data => console.log(data));
+
+// prints:
+// [1, 'a']
+// [2, 'b']
+// [3, 'c']
+```
+
+When the input streams have different lengths, ended streams contribute `null`:
+
+```js
+const s1 = Readable.from([1, 2, 3, 4]);
+const s2 = Readable.from(['a', 'b']);
+
+join([s1, s2]).on('data', data => console.log(data));
+// prints:
+// [1, 'a']
+// [2, 'b']
+// [3, null]   // s2 has ended
+// [4, null]
+```
+
+Custom output via `joinItems`:
+
+```js
+const s1 = Readable.from([1, 2, 3]);
+const s2 = Readable.from(['a', 'b']);
+
+const result = join([s1, s2], {
+  joinItems(sink, items) {
+    items.forEach(item => {
+      if (item !== null) sink.push(item);
+    });
+  }
+});
+
+result.on('data', data => console.log(data));
+// prints: 1, 'a', 2, 'b', 3
+```
+
+## Composition with `stream-chain`
+
+`join()` returns a plain `Readable`, so it slots naturally as the first item in a [`stream-chain`](https://www.npmjs.com/package/stream-chain) pipeline:
+
+```js
+import chain from 'stream-chain';
+import join from 'stream-join';
+import {Readable} from 'node:stream';
+
+const pipeline = chain([
+  join([Readable.from([1, 2, 3]), Readable.from([10, 20, 30])]),
+  ([a, b]) => a + b,
+  x => x * 2
+]);
+
+pipeline.on('data', x => console.log(x));
+// prints: 22, 44, 66
+```
+
+## API
+
+```js
+import join from 'stream-join';
 
 const result = join(streams[, options]);
 ```
 
-Where:
+- `streams` — non-empty array of object-mode [Readable](https://nodejs.org/api/stream.html#stream_readable_streams) streams.
+- `options` — optional. Passed through to the underlying [Readable](https://nodejs.org/api/stream.html#new-streamreadableoptions); `objectMode` is always `true`. Plus:
+  - `joinItems(sink, items)` — optional. Called once per round.
+    - `sink.push(value)` may be called 0 or more times.
+    - `items` is an array of values, one per stream in positional order. `null` means that stream has ended.
+    - Default: `(sink, items) => sink.push(items)`.
+- Returns: an object-mode `Readable` that emits the combined values.
 
-* `streams` is an array of object mode [Readable](https://nodejs.org/api/stream.html#stream_readable_streams) streams.
-* `options` is an optional object detailed in the [Node's documentation](https://nodejs.org/api/stream.html#stream_new_stream_readable_options) used to create `result`.
-  * The following properties are always overridden:
-    * `objectMode` is always `true`.
-    * `read()` is replaced with an internal implementation.
-  * The following custom properties are recognized:
-    * `skipEvents` is an optional flag. If it is falsy (the default), `'error'` events from all streams are forwarded to `result`. If it is truthy, no event forwarding is made. A user can always do so manually.
-    * `joinItems(output, items)` is an optional function. It can be used to combine individual values together. It may push to the output 0 or more values. It returns no value and takes two arguments:
-      * `output` is a `result` object described below. It can be used to push values with a method `push()`.
-        * *Warning:* never push out `null` values because they indicate that a stream has been finished and should be closed.
-      * `items` is an array of values. It has the same length as `streams` and contains values from corresponding streams. If a corresponding stream has ended, `null` is going to be used as a value.
-* `result` is an object mode [Readable](https://nodejs.org/api/stream.html#stream_readable_streams) stream, which produces combined values.
+Errors from any input stream are propagated to the output's `'error'` event with the original error (Node's iterator-AbortError wrapper is unwrapped internally).
 
-See the Introduction above for examples of how to use `stream-join`.
+## Documentation
+
+Detailed docs live in the [wiki](https://github.com/uhop/stream-join/wiki).
 
 ## Release History
 
-- 1.0.1 *technical release, no need to upgrade.*
-- 1.0.0 *the initial release.*
+- 2.0.0 _Rebuilt on `stream-chain`. Requires Node 22+. Fleet-standard layout, AI docs, `tape-six` tests, JS + `.d.ts` sidecars. `skipEvents` accepted as no-op for backwards compat._
+- 1.0.1 _Technical release, no need to upgrade._
+- 1.0.0 _The initial release._
+
+The full release notes are in the wiki: [Release notes](https://github.com/uhop/stream-join/wiki/Release-notes).

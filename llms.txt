@@ -1,0 +1,84 @@
+# stream-join
+
+> Join values from multiple object-mode Readable streams into a single object-mode Readable, with proper backpressure handling. Built on `stream-chain`.
+
+- Single function: `join(streams[, options])`
+- Per round: pulls one value from each non-ended stream concurrently; ended streams contribute `null`
+- Optional `joinItems(sink, items)` callback combines per-round values into 0+ output values
+- Default output: an array of per-round values (one per stream, `null` for ended streams)
+- Output is always object-mode; the Readable produced is from `stream-chain/utils/readableFrom`
+- Errors from any input stream are propagated to the output (the original error is preserved across Node's iterator-AbortError wrapper)
+
+## Quick start
+
+Install:
+
+```bash
+npm i stream-join
+```
+
+Usage (`example.mjs`):
+
+```js
+import join from 'stream-join';
+import {Readable} from 'node:stream';
+
+const s1 = Readable.from([1, 2, 3]);
+const s2 = Readable.from(['a', 'b', 'c']);
+
+const result = join([s1, s2]);
+result.on('data', x => console.log(x));
+// Output: [1, 'a'], [2, 'b'], [3, 'c']
+```
+
+## Importing
+
+```js
+// ESM (default export)
+import join from 'stream-join';
+
+// CommonJS
+const join = require('stream-join');
+```
+
+## API
+
+### join(streams[, options])
+
+Joins values from an array of object-mode Readable streams.
+
+- `streams` (array, required) — non-empty array of object-mode Readable streams.
+- `options` (object, optional) — Readable options plus:
+  - `joinItems(sink, items)` — optional callback. `sink.push(value)` 0+ times per round. `items` is an array of one value per stream (`null` if that stream has ended). Default: `(sink, items) => sink.push(items)`.
+- Returns: a Readable stream emitting the combined values.
+
+The output is always `objectMode: true`. Errors from any input stream are propagated to the output.
+
+## Composition with stream-chain
+
+`stream-join` returns a plain Readable, so it slots naturally into a `stream-chain` pipeline as the first item:
+
+```js
+import chain from 'stream-chain';
+import join from 'stream-join';
+import {Readable} from 'node:stream';
+
+const pipeline = chain([
+  join([Readable.from([1, 2, 3]), Readable.from([10, 20, 30])]),
+  ([a, b]) => a + b
+]);
+pipeline.on('data', x => console.log(x));
+// Output: 11, 22, 33
+```
+
+## Notable changes in 2.0
+
+- Built on `stream-chain` instead of a hand-rolled Readable.
+- Requires Node 22+.
+- `skipEvents` option is accepted for backwards compatibility but is a no-op: errors are now always propagated to the output via the async-iterator path.
+
+## Links
+
+- Repository: https://github.com/uhop/stream-join
+- npm: https://www.npmjs.com/package/stream-join
+- Full LLM reference: https://raw.githubusercontent.com/uhop/stream-join/master/llms-full.txt

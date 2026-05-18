@@ -1,0 +1,57 @@
+<!-- Canonical source: AGENTS.md — keep this file in sync -->
+# stream-join — AI Agent Rules
+
+## Project identity
+
+`stream-join` joins values from multiple object-mode Readable streams into a single object-mode Readable with proper backpressure. The npm package name is `stream-join`. It is built on top of `stream-chain` (`readableFrom`) and is part of the `stream-chain` / `stream-json` family.
+
+## Critical rules
+
+- **CommonJS.** The project is `"type": "commonjs"`. Use `require()` in source, `import` in tests (`.mjs`).
+- **No transpilation.** Code runs directly.
+- **One runtime dependency: `stream-chain`.** Never add other packages to `dependencies`.
+- **Built on `stream-chain`.** Use `stream-chain/utils/readableFrom` as the foundation; do not hand-roll `Readable` + pause/resume.
+- **Object mode is always on.** The output Readable forces `objectMode: true`.
+- **Backpressure must be handled correctly** — async iteration via `readableFrom` is the mechanism.
+- **Do not modify or delete test expectations** without understanding why they changed.
+- **Do not add comments or remove comments** unless explicitly asked.
+- **Keep `src/index.js` and `src/index.d.ts` in sync.**
+
+## Code style
+
+- Prettier: 100 char width, single quotes, no bracket spacing, no trailing commas, arrow parens "avoid" (see `.prettierrc`).
+- 2-space indentation.
+- Semicolons are enforced by Prettier (default `semi: true`).
+
+## Architecture quick reference
+
+- `join(streams, options)` is the only public export.
+- Input streams: object-mode Node `Readable`. Consumed via `[Symbol.asyncIterator]()`.
+- Per-round: `Promise.all(iters.map(it => it.next()))` pulls one value from each non-ended stream concurrently; ended streams contribute `null`.
+- Errors: a side-listener captures the original `'error'` value before Node's async-iterator destroys the stream with an `AbortError` wrapper; the captured error is re-thrown.
+- `joinItems(sink, items)` combines per-round values. Default: `(sink, items) => sink.push(items)`.
+- The output is `readableFrom({iterable: zip, objectMode: true, ...})` from `stream-chain`.
+
+## Verification commands
+
+- `npm test` — run the full test suite (parallel workers)
+- `node tests/test-<name>.mjs` — run a single test file directly
+- `npm run test:bun` — run with Bun
+- `npm run test:deno` — run with Deno
+- `npm run ts-check` — TypeScript type checking
+- `npm run js-check` — `tsc --allowJs --checkJs` over the JS sources
+- `npm run lint` — Prettier check
+- `npm run lint:fix` — Prettier write
+
+## File layout
+
+- Entry point: `src/index.js` + `src/index.d.ts`
+- Tests: `tests/test-*.mjs`, `tests/test-*.cjs`, `tests/helpers.mjs`
+- Wiki docs: `wiki/` (git submodule)
+
+## When reading the codebase
+
+- Start with `ARCHITECTURE.md` for the module map.
+- `src/index.d.ts` is the canonical API reference.
+- The `tests/` files demonstrate every supported usage pattern.
+- Wiki markdown files in `wiki/` contain detailed usage docs.

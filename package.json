@@ -1,32 +1,72 @@
 {
   "name": "stream-join",
-  "version": "1.0.1",
-  "description": "stream-join is the micro-module to join values of multiple streams together.",
-  "homepage": "http://github.com/uhop/stream-join",
-  "bugs": "http://github.com/uhop/stream-join/issues",
-  "main": "index.js",
-  "directories": {
-    "test": "tests"
+  "version": "2.0.0",
+  "description": "Join values from multiple object-mode Readable streams into a single Readable, with proper backpressure handling.",
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": "./src/index.js",
+    "./*": "./src/*"
   },
-  "devDependencies": {
-    "heya-unit": "^0.3.0"
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
-    "test": "node tests/tests.js"
+    "test": "tape6 --flags FO",
+    "test:bun": "tape6-bun --flags FO",
+    "test:deno": "tape6-deno --flags FO",
+    "ts-check": "tsc --noEmit",
+    "js-check": "tsc --project tsconfig.check.json",
+    "ts-test": "tape6 --flags FO 'tests/test-*.*ts'",
+    "ts-test:bun": "tape6-bun --flags FO 'tests/test-*.*ts'",
+    "ts-test:deno": "tape6-deno --flags FO 'tests/test-*.*ts'",
+    "lint": "prettier --check .",
+    "lint:fix": "prettier --write ."
   },
-  "github": "http://github.com/uhop/stream-join",
   "repository": {
     "type": "git",
-    "url": "git://github.com/uhop/stream-join.git"
+    "url": "git+https://github.com/uhop/stream-join.git"
   },
   "keywords": [
     "stream",
-    "streaming"
+    "streaming",
+    "join",
+    "zip",
+    "merge",
+    "backpressure",
+    "object-mode"
   ],
-  "author": "Eugene Lazutkin <eugene.lazutkin@gmail.com> (http://lazutkin.com/)",
+  "author": "Eugene Lazutkin <eugene.lazutkin@gmail.com> (https://www.lazutkin.com/)",
+  "funding": "https://github.com/sponsors/uhop",
+  "llms": "https://raw.githubusercontent.com/uhop/stream-join/master/llms.txt",
+  "llmsFull": "https://raw.githubusercontent.com/uhop/stream-join/master/llms-full.txt",
   "license": "BSD-3-Clause",
+  "bugs": {
+    "url": "https://github.com/uhop/stream-join/issues"
+  },
+  "homepage": "https://github.com/uhop/stream-join#readme",
   "files": [
-    "/*.js",
-    "/utils"
-  ]
+    "src",
+    "LICENSE",
+    "README.md",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "llms.txt",
+    "llms-full.txt"
+  ],
+  "tape6": {
+    "tests": [
+      "/tests/test-*.*js"
+    ]
+  },
+  "dependencies": {
+    "stream-chain": "^3.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "prettier": "^3.8.3",
+    "tape-six": "^1.9.0",
+    "typescript": "^6.0.3"
+  }
 }
