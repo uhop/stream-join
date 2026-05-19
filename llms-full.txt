@@ -1,13 +1,11 @@
 # stream-join
 
-> A micro-library that joins values from multiple object-mode Readable streams into a single object-mode Readable, with proper backpressure handling. Built on `stream-chain` and a sibling to `stream-chain`, `stream-fork`, `stream-json`, and the rest of the `object-stream` family.
+> A toolkit of N→1 stream combinators for object-mode Node Readable streams. Four primitives — `zip`, `select`, `race`, `concat` — cover the useful control-flow shapes. A small helper layer under `utils/` composes them into common merge patterns (k-way merge of sorted streams, priority-queue merge, drift-tolerant merge). Built on `stream-chain` and sibling to the rest of the `object-stream` family.
 
-- Single public function: `join(streams[, options])`
-- Per-round zip semantics: one value per non-ended input stream; ended streams contribute `null`
-- Optional `joinItems(sink, items)` callback collapses or expands per-round values
-- Output Readable is `objectMode: true` (always)
-- Backpressure flows naturally through `stream-chain`'s `readableFrom`
-- Error propagation: original input-stream `'error'` is preserved across Node's async-iterator AbortError wrapper
+- Two runtime deps: `stream-chain` (provides `readableFrom`), `nano-binary-search` (used by `sortedInsert`).
+- Node 22+. CommonJS package, consumable from both CJS and ESM consumers.
+- All main components produce an `objectMode: true` Readable.
+- All input-stream reads go through an internal event-based puller — original `'error'` values are preserved (no `AbortError` wrapping).
 
 ## Quick start
 
@@ -16,166 +14,313 @@ npm i stream-join
 ```
 
 ```js
-import join from 'stream-join';
+import zip from 'stream-join';
 import {Readable} from 'node:stream';
 
 const s1 = Readable.from([1, 2, 3]);
 const s2 = Readable.from(['a', 'b', 'c']);
 
-const result = join([s1, s2]);
-result.on('data', x => console.log(x));
-// Output: [1, 'a'], [2, 'b'], [3, 'c']
+zip([s1, s2]).on('data', x => console.log(x));
+// [1, 'a'], [2, 'b'], [3, 'c']
 ```
 
 ## Importing
 
 ```js
-// ESM (default export)
-import join from 'stream-join';
+// Default = zip (back-compat with 1.x naming `join`)
+import zip from 'stream-join';
+const zip = require('stream-join');
+const join = require('stream-join'); // same function
 
-// CommonJS
-const join = require('stream-join');
+// Each main component as its own subpath
+import zip from 'stream-join/zip';
+import select from 'stream-join/select';
+import race from 'stream-join/race';
+import concat from 'stream-join/concat';
+
+// Helpers
+import pickFirst from 'stream-join/utils/pick-first';
+import pickMin from 'stream-join/utils/pick-min';
+import sortedInsert from 'stream-join/utils/sorted-insert';
+import mergeSorted from 'stream-join/utils/merge-sorted';
 ```
 
-The package is `"type": "commonjs"` and ships a CJS entry. Modern Node (22+) consumes it from both ESM and CJS without ceremony.
+The package is `"type": "commonjs"` and ships a CJS entry; Node 22+ consumes it from both ESM and CJS without ceremony.
 
-## API
+## API — main components
 
-### join(streams[, options])
+The four primitives correspond to the four useful "N inputs to 1 output" control-flow shapes:
 
-Joins an array of object-mode Readable streams into a single object-mode Readable.
+| Primitive    | Per-round advance     | Output cardinality                  | Order                            |
+| ------------ | --------------------- | ----------------------------------- | -------------------------------- |
+| `zip`        | All streams           | Longest input × joinItems' fan      | Per-round grouped                |
+| `select`     | One stream (user pick) | Sum of all inputs                   | User's pick decides              |
+| `race`       | One stream (race winner) | Sum of all inputs                   | Non-deterministic                |
+| `concat`     | One stream sequentially | Sum of all inputs                   | Stream-major (s0…s_N-1)          |
 
-- `streams` (array, required) — non-empty array of object-mode `Readable` streams.
-- `options` (object, optional) — passed through to `Readable` (see [Node's docs](https://nodejs.org/api/stream.html#new-streamreadableoptions)) plus the following:
-  - `joinItems(sink, items)` — optional. Called once per round with the per-stream values. `sink.push(value)` may be called 0 or more times to emit per-round outputs. Default: `(sink, items) => sink.push(items)` (emits the items array as a single output value).
-- Returns: a Readable stream (`objectMode: true`).
+### `zip(streams[, options])`
 
-#### Round semantics
+Symmetric N→1 combine. Every round pulls one value from each non-ended stream concurrently via `Promise.all`; values from ended streams are represented as `null`. The user's `joinItems(sink, items)` callback combines per-round values into 0 or more output values.
 
-Each iteration ("round") pulls one value from every non-ended input stream concurrently via `Promise.all(iters.map(it => it.next()))`. The resulting `items` array has the same positional order as `streams`. A `null` in `items` means the corresponding stream has ended (object-mode streams cannot otherwise emit `null` because Node reserves it for end-of-stream).
+Signature:
 
-The iteration stops when all streams have ended.
+```ts
+function zip<T = readonly (unknown | null)[], const S extends readonly Readable[] = readonly Readable[]>(
+  streams: S,
+  options?: zip.JoinOptions<T, S>
+): TypedReadable<T>;
+```
 
-#### joinItems
+Parameters:
 
-The default `joinItems` emits each round's items array as a single value:
+- `streams` — non-empty array of object-mode `Readable` streams. Throws `TypeError` on empty.
+- `options.joinItems(sink, items)` — optional. Called once per round with the per-stream values (positionally; `null` for ended streams). Push 0 or more output values via `sink.push(value)`. May be `async`: a returned thenable is awaited before the next round starts. Default: `(sink, items) => sink.push(items)` (emits the items array as a single output value).
+- `options.skipEvents` — accepted for backwards compatibility with 1.x; no-op.
+- Any other `ReadableOptions` are passed to the output Readable.
+
+Returns a Readable.
+
+Examples:
 
 ```js
-join([s1, s2])
-// emits: [v1_round1, v2_round1], [v1_round2, v2_round2], ...
+// Default: array per round
+zip([Readable.from([1, 2, 3]), Readable.from(['a', 'b', 'c'])]).on('data', x =>
+  console.log(x)
+);
+// [1, 'a'], [2, 'b'], [3, 'c']
+
+// Mismatched lengths — ended streams contribute null
+zip([Readable.from([1, 2, 3, 4]), Readable.from(['a', 'b'])]);
+// [1, 'a'], [2, 'b'], [3, null], [4, null]
+
+// Custom joinItems
+zip([s1, s2], {
+  joinItems(sink, items) {
+    if (items[0] !== null && items[1] !== null) sink.push(items.join('-'));
+  }
+});
 ```
 
-Custom callbacks can push 0, 1, or many values per round:
+### `select(streams, options)`
+
+Asymmetric N→1 selection. Parallel initial fill of up to `windowSize` items per stream; per round, the user's `pick(items)` returns the index of the slot to emit. That slot's source stream is refilled (`insert`, default: replace in place) or removed (`remove`, default: splice) if exhausted. Useful for k-way merge of sorted streams, priority-queue merge, drift-tolerant merge.
+
+Signature:
+
+```ts
+function select<const S extends readonly Readable[] = readonly Readable[]>(
+  streams: S,
+  options: select.SelectOptions<S>
+): TypedReadable<select.SlotItemType<S>>;
+```
+
+Slot shape (what `pick` / `insert` / `remove` see):
+
+```ts
+interface Slot<T> {
+  item: T;       // the value pulled from the source stream
+  index: number; // position of the source stream in the streams array
+}
+```
+
+`items` is **read-only by contract**. Modify values via a downstream `chain()` step, not by mutating slots inside callbacks.
+
+Parameters:
+
+- `streams` — non-empty array of object-mode Readable streams.
+- `options.pick(items) => number` — **required**. Returns the index in `items` of the slot to emit. Stop signals: `undefined`, `null`, `NaN`, ±`Infinity`, negative, non-integer, or `>= items.length` — any of these end the merge.
+- `options.insert(items, newSlot, lastPos?)` — optional. Mutates `items` in place. Called during initial fill (`lastPos === undefined`, length MAY grow) and during steady-state refill (`lastPos` defined, length MUST stay unchanged). Default: replace at `lastPos`, or `push` when `lastPos` undefined.
+- `options.remove(items, lastPos)` — optional. Called when the source stream of `items[lastPos]` has just exhausted. Must decrease `items.length` by 1. Default: `items.splice(lastPos, 1)`.
+- `options.windowSize` — optional. Per-stream buffer depth. Default 1. Must be a positive integer.
+- Any other `ReadableOptions` are passed to the output Readable.
+
+Examples:
 
 ```js
-// Concatenate per-round values with a separator
-join([s1, s2, s3], {
-  joinItems(sink, items) {
-    sink.push(items.join('-'));
-  }
+// K-way merge of sorted streams
+const select = require('stream-join/select');
+const pickFirst = require('stream-join/utils/pick-first');
+const sortedInsert = require('stream-join/utils/sorted-insert');
+
+select([s1, s2, s3], {
+  pick: pickFirst,
+  insert: sortedInsert((a, b) => a < b)
 });
 
-// Emit non-null items individually (flattens the streams together)
-join([s1, s2], {
-  joinItems(sink, items) {
-    if (items[0] !== null) sink.push(items[0]);
-    if (items[1] !== null) sink.push(items[1]);
-  }
+// Drift-tolerant merge: tolerate up to 4 items of local disorder per stream
+select([s1, s2], {
+  pick: pickFirst,
+  insert: sortedInsert((a, b) => a.timestamp < b.timestamp),
+  windowSize: 4
 });
 
-// Skip rounds conditionally
-join([s1, s2], {
-  joinItems(sink, items) {
-    if (items[0] !== null && items[0] % 2 === 0) {
-      sink.push(items[0] + items[1]);
-    }
+// Priority-queue merge with default insert (replace at lastPos)
+const pickMin = require('stream-join/utils/pick-min');
+select([s1, s2, s3], {pick: pickMin((a, b) => a.priority < b.priority)});
+
+// Early termination
+let emitted = 0;
+select([s1, s2], {
+  pick: items => {
+    if (++emitted > 100) return -1; // stop after 100 emissions
+    return 0;
   }
 });
 ```
 
-#### Errors
+### `race(streams[, options])`
 
-If any input stream emits `'error'`, the original error is propagated to the output stream's `'error'` event. The output is destroyed; further data events are not emitted.
+Emit-as-ready. All N streams have a pull in flight; `Promise.race` selects whichever resolves first; emit that value and restart the pull on that stream. No buffering across rounds. Natural fit for merging live event streams where the output should not be bounded by the slowest source.
 
-The legacy `skipEvents` option from 1.x is accepted for backwards compatibility but is a no-op in 2.x — errors always propagate. (1.x used a separate explicit error-forwarding listener; in 2.x the async-iterator path always surfaces errors, so suppressing them would require swallowing legitimate iterator failures.)
+Signature:
+
+```ts
+function race<const S extends readonly Readable[] = readonly Readable[]>(
+  streams: S,
+  options?: race.RaceOptions
+): TypedReadable<race.RaceItemType<S>>;
+```
+
+Parameters:
+
+- `streams` — non-empty array of object-mode Readable streams.
+- `options` — Readable options.
+
+Returns a Readable. Output order is non-deterministic — depends on how the input streams' data events interleave.
+
+Example:
+
+```js
+const race = require('stream-join/race');
+
+race([logStreamA, logStreamB, logStreamC]).on('data', event => process(event));
+// Whichever stream produces an event first gets that event emitted first.
+```
+
+### `concat(streams[, options])`
+
+Sequential drain. Stream 0 is fully consumed, then stream 1, …, then stream N-1. Pullers are created lazily — only one stream's puller is active at a time — so streams that haven't started yet don't buffer data prematurely.
+
+Signature:
+
+```ts
+function concat<const S extends readonly Readable[] = readonly Readable[]>(
+  streams: S,
+  options?: concat.ConcatOptions
+): TypedReadable<concat.ConcatItemType<S>>;
+```
+
+Parameters:
+
+- `streams` — non-empty array of object-mode Readable streams.
+- `options` — Readable options.
+
+Returns a Readable.
+
+Example:
+
+```js
+const concat = require('stream-join/concat');
+
+concat([part1, part2, part3]).on('data', chunk => out.push(chunk));
+// All of part1, then all of part2, then all of part3.
+```
+
+## Helpers (`utils/`)
+
+The helpers compose with `select()` to express common merge patterns. They live under `src/utils/` and import as `stream-join/utils/<name>`.
+
+### `pickFirst`
+
+```js
+const pickFirst = () => 0;
+```
+
+Constant-time picker. Pair with `sortedInsert` for k-way merge of sorted streams.
+
+### `pickMin(lessFn)`
+
+```js
+const pickMin = lessFn => items => {
+  let min = 0;
+  for (let i = 1; i < items.length; ++i) {
+    if (lessFn(items[i].item, items[min].item)) min = i;
+  }
+  return min;
+};
+```
+
+Linear-scan picker. `lessFn(a, b)` returns `true` if `a` should come before `b`. Operates on item values (helper unwraps `slot.item` internally) so the same comparator can be reused with `sortedInsert`.
+
+### `sortedInsert(lessFn)`
+
+Returns an `insert` callback that maintains the buffer in sorted order. Uses `nano-binary-search` to find the insertion point; on post-pick refill, detects when the new slot belongs at the same position as the just-removed one and does a single in-place replace (no splice) — the common case when source streams are themselves locally sorted.
+
+`lessFn` operates on item values, same convention as `pickMin`.
+
+### `mergeSorted(streams, lessFn[, options])`
+
+Umbrella that wires `select + pickFirst + sortedInsert(lessFn)`. K-way merge of sorted streams in one line:
+
+```js
+const mergeSorted = require('stream-join/utils/merge-sorted');
+
+mergeSorted(
+  [Readable.from([1, 4, 7]), Readable.from([2, 5, 8]), Readable.from([3, 6, 9])],
+  (a, b) => a < b
+).on('data', x => console.log(x));
+// 1, 2, 3, 4, 5, 6, 7, 8, 9
+```
+
+Pass `windowSize` via `options` for drift tolerance:
+
+```js
+mergeSorted([s1, s2], (a, b) => a < b, {windowSize: 4});
+```
+
+## The internal puller (`makeStreamPuller`)
+
+All four main components share `src/stream-puller.js` for reading from input streams. It's an event-based wrapper that turns a Readable into an awaitable: `{next, close}` where `next()` returns `Promise<{value, done}>`. Backpressure via per-stream pause/resume; original `'error'` values are propagated directly (no `AbortError` wrap).
+
+**Not part of the public API.** The contract may change between minor releases. Components consume it internally; callers should use the four main components.
 
 ## Composition with stream-chain
 
-`stream-join` returns a plain Readable, so it slots naturally into a `stream-chain` pipeline as the first item:
+Every main component returns a plain Readable, so it composes as the first item in a `stream-chain` pipeline:
 
 ```js
-import chain from 'stream-chain';
-import join from 'stream-join';
-import {Readable} from 'node:stream';
+const chain = require('stream-chain');
+const mergeSorted = require('stream-join/utils/merge-sorted');
 
-const pipeline = chain([
-  join([Readable.from([1, 2, 3]), Readable.from([10, 20, 30])]),
-  ([a, b]) => a + b,
-  x => x * 2
-]);
-
-pipeline.on('data', x => console.log(x));
-// Output: 22, 44, 66
-```
-
-Custom `joinItems` works inside chains too:
-
-```js
 chain([
-  join([Readable.from(['a', 'b']), Readable.from(['x', 'y'])], {
-    joinItems(sink, items) {
-      sink.push(items[0]);
-      sink.push(items[1]);
-    }
-  }),
-  s => s.toUpperCase()
+  mergeSorted([s1, s2, s3], (a, b) => a.timestamp < b.timestamp),
+  event => ({...event, processed: Date.now()}),
+  event => JSON.stringify(event),
+  fs.createWriteStream('out.jsonl')
 ]);
-// Output: 'A', 'X', 'B', 'Y'
 ```
 
-## Common patterns
+## Error handling
 
-### Zipping two streams with mismatched lengths
+If any input stream emits `'error'` while a main component is consuming it, the error is propagated to the output's `'error'` event with the **original value preserved**. The internal puller listens for `'error'` directly and surfaces the value through its Promise rejection; the component's generator throws the error, `readableFrom` catches it and destroys the output with the same error.
 
-```js
-const s1 = Readable.from([1, 2, 3, 4]);
-const s2 = Readable.from(['a', 'b']);
+This was a subtle deficiency of the 2.0.0 implementation, which used `Readable[Symbol.asyncIterator]()` and worked around the `AbortError` wrap with a side-listener hack. The 2.x puller-based implementation drops the workaround — original errors flow naturally.
 
-join([s1, s2]);
-// emits: [1, 'a'], [2, 'b'], [3, null], [4, null]
-```
+## What is NOT in stream-join
 
-### Side-by-side aggregation
+- **Sort.** Sorting streams is the job of `stream-sorting` (forthcoming). This package treats input order as given.
+- **SQL-style key-based join.** That's `mergeJoin` in `stream-sorting`. This package's primitives don't know about keys or sortedness.
+- **Set operations (union, intersection, difference) on sorted streams.** Live in `stream-sorting`.
+- **1→N operations (tee, fork).** That's `stream-fork`.
 
-```js
-join([requestStream, responseStream], {
-  joinItems(sink, [req, res]) {
-    if (req !== null && res !== null) {
-      sink.push({req, res});
-    }
-  }
-});
-```
+## Notable changes 1.x → 2.x
 
-### Joining N streams into a CSV-like row stream
-
-```js
-join([colA, colB, colC], {
-  joinItems(sink, items) {
-    sink.push(items.map(v => v ?? '').join(','));
-  }
-});
-```
-
-## Notable changes from 1.x to 2.x
-
-- **Built on `stream-chain`.** The hand-rolled `Readable` + per-stream pause/resume mechanics from 1.x are gone; the implementation now uses `stream-chain/utils/readableFrom` driven by an async generator.
-- **`stream-chain` is a runtime dependency.**
-- **Node 22+ required.**
-- **`skipEvents` is now a no-op.** Errors always propagate via the async-iterator path. The option remains accepted as a courtesy to 1.x callers but does nothing.
-- **The `joinItems` sink parameter is now called `sink`** in docs/tests but its shape (`sink.push(value)`) is unchanged.
-
-The public surface (`join(streams, options)` returning a Readable) is otherwise unchanged.
+- **Built on `stream-chain`** — a runtime dependency now (was zero-dep in 1.x).
+- **Node 22+** required.
+- **Multi-component package.** 1.x exported a single function. 2.x exports four (`zip`, `select`, `race`, `concat`) plus helpers under `utils/`.
+- **Internal puller is event-based, not `[Symbol.asyncIterator]()`.** Original `'error'` values are propagated.
+- **`skipEvents` option** from 1.x is accepted as a no-op.
+- **Default export** remains the `zip` function (formerly named `join` in 1.x); `require('stream-join')` returns it for back-compat.
 
 ## Links
 
