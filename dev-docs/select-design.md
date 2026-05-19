@@ -56,7 +56,7 @@ Helpers shipped alongside:
 
 ```js
 const sortedInsert = require('stream-join/sorted-insert');
-const pickFirst    = require('stream-join/pick-first');
+const pickFirst = require('stream-join/pick-first');
 
 const lessByTime = (a, b) => a.timestamp < b.timestamp;
 
@@ -143,16 +143,18 @@ For typical callers the default is exactly what they want — the hook is opt-in
 Initial fill is asynchronous and parallel across streams: each stream pulls up to `windowSize` items, and all N streams' pull-loops run concurrently. Per-stream pulls are sequential (one after another); cross-stream, they're concurrent. Total wait is the slowest stream's `windowSize` pulls — not the sum across streams.
 
 ```js
-await Promise.all(streams.map(async (s, streamIndex) => {
-  for (let i = 0; i < windowSize; ++i) {
-    const r = await pullers[streamIndex].next();
-    if (r.done) {
-      exhausted[streamIndex] = true;
-      return; // stop pulling from this stream
+await Promise.all(
+  streams.map(async (s, streamIndex) => {
+    for (let i = 0; i < windowSize; ++i) {
+      const r = await pullers[streamIndex].next();
+      if (r.done) {
+        exhausted[streamIndex] = true;
+        return; // stop pulling from this stream
+      }
+      insert(items, {item: r.value, index: streamIndex}, undefined);
     }
-    insert(items, {item: r.value, index: streamIndex}, undefined);
-  }
-}));
+  })
+);
 ```
 
 JavaScript single-threading means `insert` calls are serialized between `await` points — no race condition on the shared `items` mutation, even though pulls run in parallel.
@@ -286,8 +288,8 @@ Instead, both components share a small event-based wrapper. **All internal strea
 
 ```js
 const makeStreamPuller = stream => {
-  const queue = [];      // buffered items
-  const waiters = [];    // {resolve, reject} for pending pulls
+  const queue = []; // buffered items
+  const waiters = []; // {resolve, reject} for pending pulls
   let ended = false,
     errored = null;
 
