@@ -44,3 +44,31 @@ test.asPromise('errors: legacy skipEvents option is accepted (no-op in 2.x)', (t
     resolve();
   });
 });
+
+test.asPromise('errors: joinItems sync throw propagates to the output', (t, resolve) => {
+  const boom = new Error('boom');
+  const result = join([streamFromArray([1, 2, 3]), streamFromArray(['a', 'b', 'c'])], {
+    joinItems() {
+      throw boom;
+    }
+  });
+  result.on('data', () => {});
+  result.once('error', error => {
+    t.equal(error, boom);
+    resolve();
+  });
+});
+
+test.asPromise('errors: joinItems async rejection propagates to the output', (t, resolve) => {
+  const boom = new Error('boom');
+  const result = join([streamFromArray([1, 2, 3]), streamFromArray(['a', 'b', 'c'])], {
+    async joinItems() {
+      throw boom;
+    }
+  });
+  result.on('data', () => {});
+  result.once('error', error => {
+    t.equal(error, boom);
+    resolve();
+  });
+});

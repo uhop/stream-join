@@ -158,6 +158,80 @@ test.asPromise('select: pick returning NaN ends the merge', async (t, resolve) =
   resolve();
 });
 
+test.asPromise('select: pick returning Infinity ends the merge', async (t, resolve) => {
+  let count = 0;
+  const result = select([streamFromArray([1, 2, 3])], {
+    pick: () => (count++ >= 1 ? Infinity : 0)
+  });
+  const output = await streamToArrayOnce(result);
+  t.deepEqual(output, [1]);
+  resolve();
+});
+
+test.asPromise(
+  'select: pick returning items.length (overflow) ends the merge',
+  async (t, resolve) => {
+    let count = 0;
+    const result = select([streamFromArray([1, 2, 3])], {
+      // Exactly items.length is out of range — the guard is `pos >= items.length`.
+      pick: items => (count++ >= 1 ? items.length : 0)
+    });
+    const output = await streamToArrayOnce(result);
+    t.deepEqual(output, [1]);
+    resolve();
+  }
+);
+
+test.asPromise('select: pick returning a non-integer ends the merge', async (t, resolve) => {
+  let count = 0;
+  const result = select([streamFromArray([1, 2, 3]), streamFromArray([10, 20])], {
+    pick: () => (count++ >= 1 ? 1.5 : 0)
+  });
+  const output = await streamToArrayOnce(result);
+  t.deepEqual(output, [1]);
+  resolve();
+});
+
+test.asPromise(
+  'select: custom insert hook is invoked on initial fill and refill',
+  async (t, resolve) => {
+    const inserts = [];
+    const result = select([streamFromArray([1, 2]), streamFromArray([10])], {
+      pick: pickMin((a, b) => a < b),
+      insert(items, newSlot, lastPos) {
+        inserts.push({lastPos, item: newSlot.item, index: newSlot.index});
+        if (lastPos === undefined) items.push(newSlot);
+        else items[lastPos] = newSlot;
+      }
+    });
+    await streamToArrayOnce(result);
+    // Initial fill: 2 inserts (one per stream, lastPos=undefined).
+    // pickMin emits 1 from stream 0 → refill stream 0 with 2 (insert at lastPos=0).
+    // pickMin emits 2 → refill stream 0 → done (no insert, default remove).
+    // pickMin emits 10 → refill stream 1 → done.
+    t.equal(inserts.length, 3);
+    const initial = inserts.filter(x => x.lastPos === undefined);
+    const refills = inserts.filter(x => x.lastPos !== undefined);
+    t.equal(initial.length, 2);
+    t.equal(refills.length, 1);
+    t.equal(refills[0].item, 2);
+    t.equal(refills[0].index, 0);
+    resolve();
+  }
+);
+
+test.asPromise('select: windowSize larger than stream length still drains', async (t, resolve) => {
+  // Each stream has 2 items, windowSize=5 — initial fill must bail at exhaustion,
+  // not hang waiting for the 3rd/4th/5th pull.
+  const result = select([streamFromArray([1, 2]), streamFromArray([10, 20])], {
+    pick: pickMin((a, b) => a < b),
+    windowSize: 5
+  });
+  const output = await streamToArrayOnce(result);
+  t.deepEqual(output, [1, 2, 10, 20]);
+  resolve();
+});
+
 test.asPromise('select: custom remove hook is invoked on stream end', async (t, resolve) => {
   const removed = [];
   const result = select([streamFromArray([1, 2]), streamFromArray([10])], {
