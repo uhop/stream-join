@@ -61,6 +61,7 @@
     ]
   },
   "dependencies": {
+    "nano-binary-search": "^1.0.14",
     "stream-chain": "^3.6.3"
   },
   "devDependencies": {
