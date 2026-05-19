@@ -13,13 +13,21 @@ export = zip;
  * thenable, so synchronous callbacks pay no microtask cost).
  *
  * Two call forms:
- * - `zip(streams, options?)` — output type is the per-stream tuple (`null` for ended streams).
- * - `zip<T>(streams, options)` — output type is `T`, supplied explicitly when a custom
+ * - `zip(streams, options?)` — output element type is the per-stream tuple (`null` for ended streams).
+ * - `zip<T>(streams, options)` — output element type is `T`, supplied explicitly when a custom
  *   `joinItems` reshapes the per-round values.
  *
- * @param streams non-empty array of object-mode Readable streams
- * @param options Readable options plus `joinItems`
- * @returns a Readable stream that produces the combined values
+ * Throws `TypeError` if `streams` is missing, not an array, or empty.
+ *
+ * @typeParam T — element type emitted by the output Readable. Defaults to the per-stream tuple.
+ * @typeParam S — the tuple type of input streams. Inferred from the `streams` argument; supply
+ *   explicitly to recover positional tuple typing on `JoinItems<S>`.
+ * @param streams — non-empty array of object-mode Readable streams. Each may be a plain
+ *   `Readable` or a `TypedReadable<V>` for per-stream value typing.
+ * @param options — optional. Standard `ReadableOptions` plus the `joinItems` and (legacy)
+ *   `skipEvents` properties.
+ * @returns a `TypedReadable<T>` that emits combined values. Always object-mode. Propagates
+ *   `'error'` events from any input stream; ends when every input stream has ended.
  */
 declare function zip<
   T = readonly (unknown | null)[],
@@ -29,27 +37,44 @@ declare function zip<
 declare namespace zip {
   /**
    * Resolves to the value type of a `Readable` — `R` for `TypedReadable<R>`, otherwise `unknown`.
+   *
+   * @typeParam R — a `Readable` (or `TypedReadable<V>`) whose value type to extract.
    */
   export type StreamValue<R> = R extends TypedReadable<infer V> ? V : unknown;
 
   /**
    * Tuple of per-stream values aligned positionally with the input `streams` tuple. Each entry
    * is the corresponding stream's value type or `null` (if that stream has ended).
+   *
+   * @typeParam S — the tuple type of input streams.
    */
   export type JoinItems<S extends readonly Readable[]> = {
     readonly [K in keyof S]: StreamValue<S[K]> | null;
   };
 
   /**
-   * Sink passed to `joinItems`. Call `push(value)` 0 or more times per round.
+   * Sink passed to the `joinItems` callback. The callback calls `sink.push(value)` 0 or more
+   * times per round; every pushed value becomes a separate output emission.
+   *
+   * @typeParam T — element type of values pushed through the sink.
    */
   export interface JoinSink<T> {
+    /**
+     * Emit one value through the output Readable. May be called 0 or more times per round.
+     *
+     * @param value — the value to emit. No type or shape coercion is applied; passed through
+     *   as-is to the underlying Readable.
+     * @returns nothing.
+     */
     push(value: T): void;
   }
 
   /**
-   * Options accepted by `zip()`. Extends `ReadableOptions`; the readable is always
-   * `objectMode: true`.
+   * Options accepted by `zip()`. Extends `ReadableOptions`; the output Readable is always
+   * created with `objectMode: true` regardless of any value passed here.
+   *
+   * @typeParam T — element type of the output Readable.
+   * @typeParam S — the tuple type of input streams.
    */
   export interface JoinOptions<
     T = readonly (unknown | null)[],
@@ -67,12 +92,21 @@ declare namespace zip {
      * duration of the `joinItems` call. The default implementation pushes the array by
      * reference, which is safe because `zip()` allocates a fresh `items` array every round. If
      * a custom `joinItems` wants to retain the array past its return, it must copy it.
+     *
+     * Synchronous throws and rejected return-promises both propagate as `'error'` events on the
+     * output Readable.
+     *
+     * @param sink — output sink. Call `sink.push(value)` 0 or more times per round.
+     * @param items — per-stream values for the current round (length equals `streams.length`).
+     *   Position `i` is the value from `streams[i]`, or `null` if that stream has ended.
+     * @returns `void` for synchronous callbacks, or a `Promise<void>` awaited before the next round.
      */
     joinItems?: (sink: JoinSink<T>, items: JoinItems<S>) => void | Promise<void>;
 
     /**
      * Accepted for backwards compatibility with stream-join 1.x. No-op in 2.x — errors from input
      * streams are always propagated to the output via the puller's `'error'` event path.
+     *
      * @deprecated since 2.0.0
      */
     skipEvents?: boolean;

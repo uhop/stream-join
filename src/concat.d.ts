@@ -14,8 +14,15 @@ export = concat;
  *
  * The output's element type is the union of the input streams' value types.
  *
- * @param streams non-empty array of object-mode Readable streams
- * @param options optional ReadableOptions passed through to the output Readable
+ * Throws `TypeError` if `streams` is missing, not an array, or empty.
+ *
+ * @typeParam S — the tuple type of input streams.
+ * @param streams — non-empty array of object-mode Readable streams. Drained left-to-right.
+ * @param options — optional. Standard `ReadableOptions` (the output Readable is forced to
+ *   `objectMode: true` regardless of any value passed here).
+ * @returns a `TypedReadable<ConcatItemType<S>>` that emits stream 0's values, then stream 1's,
+ *   etc. Propagates `'error'` events from whichever input stream is currently being drained;
+ *   ends when every input stream has ended.
  */
 declare function concat<const S extends readonly Readable[] = readonly Readable[]>(
   streams: S,
@@ -25,13 +32,21 @@ declare function concat<const S extends readonly Readable[] = readonly Readable[
 declare namespace concat {
   /**
    * Resolves to the value type of a `Readable` — `R` for `TypedReadable<R>`, otherwise `unknown`.
+   *
+   * @typeParam R — a `Readable` (or `TypedReadable<V>`) whose value type to extract.
    */
   export type StreamValue<R> = R extends TypedReadable<infer V> ? V : unknown;
 
   /**
    * Union of value types across the input streams.
+   *
+   * @typeParam S — the tuple type of input streams.
    */
   export type ConcatItemType<S extends readonly Readable[]> = StreamValue<S[number]>;
 
+  /**
+   * Options accepted by `concat()`. Extends `ReadableOptions`; `concat()` adds no options of its
+   * own. The output Readable is always created with `objectMode: true`.
+   */
   export interface ConcatOptions extends ReadableOptions {}
 }

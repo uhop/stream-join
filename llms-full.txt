@@ -73,12 +73,12 @@ function zip<T = readonly (unknown | null)[], const S extends readonly Readable[
 
 Parameters:
 
-- `streams` — non-empty array of object-mode `Readable` streams. Throws `TypeError` on empty.
-- `options.joinItems(sink, items)` — optional. Called once per round with the per-stream values (positionally; `null` for ended streams). Push 0 or more output values via `sink.push(value)`. May be `async`: a returned thenable is awaited before the next round starts. Default: `(sink, items) => sink.push(items)` (emits the items array as a single output value).
+- `streams` — non-empty array of object-mode `Readable` streams. Throws `TypeError` on missing/empty.
+- `options.joinItems(sink, items)` — optional. Called once per round with the per-stream values (positionally; `null` for ended streams). `sink` is `{push(value): void}` — call `sink.push(value)` 0+ times per round. May be `async`: a returned thenable is awaited before the next round starts; synchronous throws and rejected return-promises both propagate as `'error'` events. Default: `(sink, items) => sink.push(items)` (emits the items array as a single output value).
 - `options.skipEvents` — accepted for backwards compatibility with 1.x; no-op.
 - Any other `ReadableOptions` are passed to the output Readable.
 
-Returns a Readable.
+Returns: a `TypedReadable<T>` (or a `TypedReadable<readonly (unknown | null)[]>` when no `T` is supplied), `objectMode: true`. Ends when every input stream has ended; propagates input-stream `'error'` events with the original value preserved. Output cardinality = longest input stream's length × the `joinItems` fan.
 
 Examples:
 
@@ -127,12 +127,14 @@ interface Slot<T> {
 
 Parameters:
 
-- `streams` — non-empty array of object-mode Readable streams.
-- `options.pick(items) => number` — **required**. Returns the index in `items` of the slot to emit. Stop signals: `undefined`, `null`, `NaN`, ±`Infinity`, negative, non-integer, or `>= items.length` — any of these end the merge.
-- `options.insert(items, newSlot, lastPos?)` — optional. Mutates `items` in place. Called during initial fill (`lastPos === undefined`, length MAY grow) and during steady-state refill (`lastPos` defined, length MUST stay unchanged). Default: replace at `lastPos`, or `push` when `lastPos` undefined.
+- `streams` — non-empty array of object-mode Readable streams. Throws `TypeError` on missing/empty.
+- `options.pick(items) => number` — **required**. `items: readonly Slot<T>[]`. Returns the index in `items` of the slot to emit. Stop signals: `undefined`, `null`, `NaN`, ±`Infinity`, negative, non-integer, or `>= items.length` — any of these end the merge. Throws `TypeError` if missing or not a function.
+- `options.insert(items, newSlot, lastPos?)` — optional. Mutates `items` in place. `lastPos === undefined` during initial fill (length MAY grow); `lastPos` defined during steady-state refill (length MUST stay unchanged). Default: replace at `lastPos`, or `push` when `lastPos` undefined.
 - `options.remove(items, lastPos)` — optional. Called when the source stream of `items[lastPos]` has just exhausted. Must decrease `items.length` by 1. Default: `items.splice(lastPos, 1)`.
-- `options.windowSize` — optional. Per-stream buffer depth. Default 1. Must be a positive integer.
+- `options.windowSize` — optional. Per-stream buffer depth. Default 1. Must be a positive integer; throws `TypeError` otherwise.
 - Any other `ReadableOptions` are passed to the output Readable.
+
+Returns: a `TypedReadable<SlotItemType<S>>` (union of input value types), `objectMode: true`. Emits one value per round (`items[pos].item`). Ends when every input stream has exhausted or `pick` returns a stop signal; propagates input-stream `'error'` events with the original value preserved. Output cardinality = sum of all input streams' lengths assuming no early stop.
 
 Examples:
 
@@ -183,10 +185,10 @@ function race<const S extends readonly Readable[] = readonly Readable[]>(
 
 Parameters:
 
-- `streams` — non-empty array of object-mode Readable streams.
-- `options` — Readable options.
+- `streams` — non-empty array of object-mode Readable streams. Throws `TypeError` on missing/empty.
+- `options` — optional `ReadableOptions` (no `race`-specific fields; output is forced to `objectMode: true`).
 
-Returns a Readable. Output order is non-deterministic — depends on how the input streams' data events interleave.
+Returns a `TypedReadable<union of input value types>` that emits values in event-loop-arrival order. Ends when every input stream has ended; propagates input-stream `'error'` events with the original value preserved. Order is non-deterministic — depends on how the input streams' data events interleave.
 
 Example:
 
@@ -212,10 +214,10 @@ function concat<const S extends readonly Readable[] = readonly Readable[]>(
 
 Parameters:
 
-- `streams` — non-empty array of object-mode Readable streams.
-- `options` — Readable options.
+- `streams` — non-empty array of object-mode Readable streams. Drained left-to-right. Throws `TypeError` on missing/empty.
+- `options` — optional `ReadableOptions` (no `concat`-specific fields; output is forced to `objectMode: true`).
 
-Returns a Readable.
+Returns a `TypedReadable<union of input value types>` emitting stream 0's values, then stream 1's, …, then stream N-1's. Ends when every input stream has ended; propagates input-stream `'error'` events with the original value preserved (later streams that haven't been started yet are never read).
 
 Example:
 
@@ -230,13 +232,23 @@ concat([part1, part2, part3]).on('data', chunk => out.push(chunk));
 
 The helpers compose with `select()` to express common merge patterns. They live under `src/utils/` and import as `stream-join/utils/<name>`.
 
-### `pickFirst`
+### `pickFirst()`
 
 ```js
 const pickFirst = () => 0;
 ```
 
-Constant-time picker. Pair with `sortedInsert` for k-way merge of sorted streams.
+Signature:
+
+```ts
+const pickFirst: () => number;
+```
+
+Parameters: none.
+
+Returns: the integer `0`, regardless of input. Constant-time, no allocations.
+
+Pair with `sortedInsert` for k-way merge of sorted streams — the smallest slot is always at index 0, so the picker is O(1) with zero comparisons.
 
 ### `pickMin(lessFn)`
 
@@ -250,17 +262,73 @@ const pickMin = lessFn => items => {
 };
 ```
 
-Linear-scan picker. `lessFn(a, b)` returns `true` if `a` should come before `b`. Operates on item values (helper unwraps `slot.item` internally) so the same comparator can be reused with `sortedInsert`.
+Signature:
+
+```ts
+function pickMin<T>(
+  lessFn: (a: T, b: T) => boolean
+): (items: readonly Slot<T>[]) => number;
+```
+
+Parameters:
+
+- `lessFn(a, b)` — comparator on item values. Returns `true` if `a` should come before `b`. Must be a strict-weak-order predicate.
+
+Returns: a picker function suitable for `select`'s `pick` option. The picker takes a `readonly Slot<T>[]` and returns the index of the slot whose `item` is smallest per `lessFn`. Ties resolve to the first occurrence. O(items.length) per call; no allocations.
+
+Operates on item values (helper unwraps `slot.item` internally), so the same comparator can be reused with `sortedInsert`.
 
 ### `sortedInsert(lessFn)`
 
-Returns an `insert` callback that maintains the buffer in sorted order. Uses `nano-binary-search` to find the insertion point; on post-pick refill, detects when the new slot belongs at the same position as the just-removed one and does a single in-place replace (no splice) — the common case when source streams are themselves locally sorted.
+Signature:
 
-`lessFn` operates on item values, same convention as `pickMin`.
+```ts
+function sortedInsert<T>(
+  lessFn: (a: T, b: T) => boolean
+): (items: Slot<T>[], newSlot: Slot<T>, lastPos?: number) => void;
+```
+
+Parameters:
+
+- `lessFn(a, b)` — comparator on item values; same shape and convention as `pickMin`.
+
+Returns: an `insert` callback suitable for `select`'s `insert` option. The callback takes:
+
+- `items: Slot<T>[]` — the mutable buffer maintained in sorted order;
+- `newSlot: Slot<T>` — the freshly-pulled slot to insert;
+- `lastPos?: number` — `undefined` during initial fill (grow the buffer), or the index of the slot just emitted (refill in place; length unchanged).
+
+…and returns nothing (mutates `items` in place).
+
+Uses `nano-binary-search` to find the insertion point; on post-pick refill, detects when the new slot belongs at the same position as the just-removed one and does a single in-place replace (no splice) — the common case when source streams are themselves locally sorted.
 
 ### `mergeSorted(streams, lessFn[, options])`
 
-Umbrella that wires `select + pickFirst + sortedInsert(lessFn)`. K-way merge of sorted streams in one line:
+Umbrella that wires `select + pickFirst + sortedInsert(lessFn)`. K-way merge of sorted streams in one line.
+
+Signature:
+
+```ts
+function mergeSorted<T>(
+  streams: readonly Readable[],
+  lessFn: (a: T, b: T) => boolean,
+  options?: MergeSortedOptions
+): TypedReadable<T>;
+
+interface MergeSortedOptions extends ReadableOptions {
+  windowSize?: number; // default 1
+}
+```
+
+Parameters:
+
+- `streams` — non-empty array of object-mode Readable streams, each sorted per `lessFn` (or locally disordered within `windowSize`).
+- `lessFn(a, b)` — comparator on item values; same shape and convention as `pickMin` / `sortedInsert`.
+- `options` — optional. `ReadableOptions` plus `windowSize` (default `1`, positive integer; larger values tolerate that many items of local disorder per stream).
+
+Returns a `TypedReadable<T>` emitting the merged sequence in sorted order per `lessFn`. Propagates input-stream `'error'` events with the original value preserved; ends when every input stream has ended.
+
+Example:
 
 ```js
 const mergeSorted = require('stream-join/utils/merge-sorted');

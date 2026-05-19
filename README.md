@@ -50,7 +50,24 @@ import mergeSorted from 'stream-join/utils/merge-sorted';
 
 ### `zip(streams, options?)` — symmetric N-round combine
 
-Per round, pulls one value from every non-ended input stream concurrently. Values from ended streams are represented as `null`. The optional `joinItems` callback combines per-round values into zero or more output values (default: emit the items array as one value).
+```ts
+zip<T = readonly (unknown | null)[]>(
+  streams: Readable[],
+  options?: {
+    joinItems?: (sink: {push(v: T): void}, items: readonly (unknown | null)[]) => void | Promise<void>;
+    skipEvents?: boolean; // legacy no-op
+    // …plus any ReadableOptions
+  }
+): Readable;
+```
+
+**Parameters.**
+
+- `streams` — non-empty array of object-mode `Readable` streams. Throws `TypeError` if missing or empty.
+- `options.joinItems(sink, items)` — optional combine callback called once per round with the per-stream values (in positional order; `null` for ended streams). Call `sink.push(value)` 0 or more times to emit. May be `async`. Default: `(sink, items) => sink.push(items)`.
+- `options.skipEvents` — legacy 1.x option, accepted as no-op in 2.x.
+
+**Returns** an object-mode `Readable` that emits the combined values; ends when every input stream has ended; propagates input-stream `'error'` events with the original value preserved.
 
 ```js
 import zip from 'stream-join';
@@ -80,7 +97,30 @@ zip([s1, s2], {
 
 ### `select(streams, options)` — buffered pick-one
 
-After a parallel initial fill of up to `windowSize` items per stream, the user's `pick(items)` returns the index of the slot to emit each round. The picked slot's source stream is refilled (default: replace in place) or removed if exhausted.
+```ts
+select(
+  streams: Readable[],
+  options: {
+    pick: (items: readonly Slot<T>[]) => number;          // required
+    insert?: (items: Slot<T>[], newSlot: Slot<T>, lastPos?: number) => void;
+    remove?: (items: Slot<T>[], lastPos: number) => void;
+    windowSize?: number; // default 1
+    // …plus any ReadableOptions
+  }
+): Readable;
+
+interface Slot<T> { item: T; index: number; }
+```
+
+**Parameters.**
+
+- `streams` — non-empty array of object-mode `Readable` streams. Throws `TypeError` if missing or empty.
+- `options.pick(items)` — **required**. Returns the index in `items` of the slot to emit and refill. Stop signal: any return value outside `[0, items.length)` (negative, `NaN`, `undefined`, `null`, ±`Infinity`, non-integer, ≥ length) ends the merge.
+- `options.insert(items, newSlot, lastPos?)` — optional. Mutates `items` in place. `lastPos === undefined` during initial fill (length MAY grow); `lastPos` defined during steady-state refill (length MUST stay unchanged). Default: replace at `lastPos` (or `push` when undefined).
+- `options.remove(items, lastPos)` — optional. Called when the source stream of `items[lastPos]` has exhausted; must decrease `items.length` by 1. Default: `items.splice(lastPos, 1)`.
+- `options.windowSize` — optional positive integer; per-stream buffer depth. Default `1`. Larger values tolerate local disorder in input streams.
+
+**Returns** an object-mode `Readable` that emits one value per round; output element type is the union of the input streams' value types; ends when every stream has exhausted or `pick` returns a stop signal; propagates input-stream `'error'` events with the original value preserved.
 
 ```js
 import select from 'stream-join/select';
@@ -93,13 +133,20 @@ select([Readable.from([1, 4, 7]), Readable.from([2, 5, 8]), Readable.from([3, 6,
 // 1, 2, 3, 4, 5, 6, 7, 8, 9
 ```
 
-The `windowSize` option (default `1`) tolerates local disorder in input streams — the picker can see up to `N × windowSize` candidates per round and recover global ordering even when individual streams have local jitter.
-
-Stop signal: `pick` returning anything outside `[0, items.length)` (negative, `NaN`, `undefined`, `null`, ≥ length) ends the merge.
-
 ### `race(streams, options?)` — emit-as-ready
 
-Whichever input stream resolves first wins each round. No buffering across rounds. Natural fit for merging live event streams where the output shouldn't be bounded by the slowest source.
+```ts
+race(streams: Readable[], options?: ReadableOptions): Readable;
+```
+
+**Parameters.**
+
+- `streams` — non-empty array of object-mode `Readable` streams. Throws `TypeError` if missing or empty.
+- `options` — optional. Standard `ReadableOptions` (the output is forced to `objectMode: true`).
+
+**Returns** an object-mode `Readable` that emits values in event-loop-arrival order from across all input streams; output element type is the union of the input streams' value types; ends when every stream has ended; propagates input-stream `'error'` events with the original value preserved.
+
+Output order is non-deterministic — it reflects how the input streams' data events interleave in the event loop.
 
 ```js
 import race from 'stream-join/race';
@@ -107,11 +154,18 @@ import race from 'stream-join/race';
 race([logStreamA, logStreamB, logStreamC]).on('data', event => process(event));
 ```
 
-Output order is non-deterministic — it reflects how the input streams' data events interleave in the event loop.
-
 ### `concat(streams, options?)` — sequential drain
 
-Stream 0 is fully drained, then stream 1, …, then stream N-1. Pullers are created lazily, one stream at a time, so streams that haven't started yet don't pre-buffer.
+```ts
+concat(streams: Readable[], options?: ReadableOptions): Readable;
+```
+
+**Parameters.**
+
+- `streams` — non-empty array of object-mode `Readable` streams. Drained left-to-right. Throws `TypeError` if missing or empty.
+- `options` — optional. Standard `ReadableOptions` (the output is forced to `objectMode: true`).
+
+**Returns** an object-mode `Readable` that emits stream 0's values, then stream 1's, …, then stream N-1's; output element type is the union of the input streams' value types; ends when every stream has ended; propagates input-stream `'error'` events with the original value preserved. Pullers are created lazily, one stream at a time, so later streams don't pre-buffer.
 
 ```js
 import concat from 'stream-join/concat';
@@ -128,12 +182,37 @@ import sortedInsert from 'stream-join/utils/sorted-insert';
 import mergeSorted from 'stream-join/utils/merge-sorted';
 ```
 
-- **`pickFirst`** — `() => 0`. Constant-time picker. Pair with `sortedInsert` for k-way merge.
-- **`pickMin(lessFn)`** — linear-scan picker. Returns index of the smallest item per `lessFn`.
-- **`sortedInsert(lessFn)`** — maintains the slot buffer in sorted order via [`nano-binary-search`](https://www.npmjs.com/package/nano-binary-search). Smart-replace optimization: when the new slot belongs at the same position as the just-removed one, replaces in place (one assignment, no splice).
-- **`mergeSorted(streams, lessFn, options?)`** — umbrella combining `select + pickFirst + sortedInsert`. K-way merge of sorted streams in one line.
+### `pickFirst() → 0`
 
-`lessFn(a, b)` always compares item values (not slots); helpers unwrap `slot.item` internally so the same comparator is reusable across helpers.
+Constant-time picker. Takes no arguments; always returns `0`. Pair with `sortedInsert` for k-way merge of sorted streams.
+
+### `pickMin(lessFn) → (items) => number`
+
+**Parameters.** `lessFn(a, b)` — comparator on item values; returns `true` if `a` should come before `b`.
+
+**Returns** a picker function suitable for `select`'s `pick` option. Takes `items: readonly Slot<T>[]` and returns the index of the slot whose `item` is smallest per `lessFn`. Ties resolve to the first occurrence. O(items.length) per call, no allocations.
+
+### `sortedInsert(lessFn) → (items, newSlot, lastPos?) => void`
+
+**Parameters.** `lessFn(a, b)` — comparator on item values; returns `true` if `a` should come before `b`.
+
+**Returns** an `insert` callback suitable for `select`'s `insert` option. Takes `items: Slot<T>[]`, `newSlot: Slot<T>`, and `lastPos?: number`; mutates `items` in place to maintain sorted order. Built on [`nano-binary-search`](https://www.npmjs.com/package/nano-binary-search). Smart-replace optimization: when the new slot belongs at the same position as the just-removed one, replaces in place (one assignment, no splice).
+
+### `mergeSorted(streams, lessFn, options?) → Readable`
+
+**Parameters.**
+
+- `streams` — non-empty array of object-mode `Readable` streams (each sorted per `lessFn`, or locally disordered within `windowSize`).
+- `lessFn(a, b)` — comparator on item values; returns `true` if `a` should come before `b`.
+- `options` — optional. `ReadableOptions` plus `windowSize?` (default `1`; larger values tolerate local disorder).
+
+**Returns** an object-mode `Readable` emitting the merged sequence in sorted order. Umbrella for `select + pickFirst + sortedInsert(lessFn)`. Equivalent to:
+
+```js
+select(streams, {...options, pick: pickFirst, insert: sortedInsert(lessFn)});
+```
+
+`lessFn(a, b)` always compares item values (not slots) across all helpers; helpers unwrap `slot.item` internally so the same comparator is reusable across helpers.
 
 ### K-way merge of sorted streams
 
