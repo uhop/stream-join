@@ -57,6 +57,30 @@ import mergeSorted from 'stream-join/web/utils/merge-sorted.js';
 
 The Web entry expects `ReadableStream` inputs and returns a `ReadableStream` output. The algorithm, options surface, and helpers are identical to the Node side — only the I/O type changes. The Web tree pulls in no `node:stream` code, so it stays bundleable for browsers and edge runtimes.
 
+```js
+import zip from 'stream-join/web';
+
+const fromArray = arr => {
+  let i = 0;
+  return new ReadableStream({
+    pull(c) {
+      i < arr.length ? c.enqueue(arr[i++]) : c.close();
+    }
+  });
+};
+
+const out = zip([fromArray([1, 2, 3]), fromArray(['a', 'b', 'c'])]);
+const reader = out.getReader();
+for (;;) {
+  const {value, done} = await reader.read();
+  if (done) break;
+  console.log(value);
+}
+// [1, 'a']
+// [2, 'b']
+// [3, 'c']
+```
+
 ## The four primitives
 
 ### `zip(streams, options?)` — symmetric N-round combine
@@ -283,7 +307,7 @@ Per-component reference and worked examples live in the [wiki](https://github.co
 
 ## Release History
 
-- 2.0.0 _Multi-component package (`zip` / `select` / `race` / `concat`) rebuilt on `stream-chain` ^4.0.2. ESM-only (`"type": "module"`). Two-tree Node + Web split — `import 'stream-join'` for Node Streams, `import 'stream-join/web'` for Web Streams. Helpers under `src/utils/` (`pickFirst`, `pickMin`, `sortedInsert`, `mergeSorted`). Requires Node 22+. Fleet-standard layout, AI docs, `tape-six` tests, JS + `.d.ts` sidecars. `skipEvents` accepted as no-op for backwards compat._
+- 2.0.0 _ESM, new functions: `zip`, `select`, `race`, `concat`. Support for Web Streams._
 - 1.0.1 _Technical release, no need to upgrade._
 - 1.0.0 _The initial release._
 
