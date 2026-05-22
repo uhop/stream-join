@@ -3,7 +3,7 @@ import test from 'tape-six';
 import {Readable} from 'node:stream';
 import type {TypedReadable} from 'stream-chain/typed-streams.js';
 
-import join from '../src/index.js';
+import join from '../../src/index.js';
 
 test.asPromise(
   'typings: default join — items typed as readonly (unknown | null)[]',

@@ -2,9 +2,9 @@ import test from 'tape-six';
 
 import {Readable} from 'node:stream';
 
-import select from '../src/select.js';
-import pickFirst from '../src/utils/pick-first.js';
-import {streamFromArray} from './helpers.js';
+import select from '../../src/select.js';
+import pickFirst from '../../src/utils/pick-first.js';
+import {streamFromArray} from '../helpers.js';
 
 const erroringStream = (error, delay = 0) =>
   new Readable({

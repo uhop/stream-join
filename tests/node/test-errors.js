@@ -2,8 +2,8 @@ import test from 'tape-six';
 
 import {Readable} from 'node:stream';
 
-import join from '../src/index.js';
-import {streamFromArray} from './helpers.js';
+import join from '../../src/index.js';
+import {streamFromArray} from '../helpers.js';
 
 const erroringStream = (error, delay = 0) =>
   new Readable({

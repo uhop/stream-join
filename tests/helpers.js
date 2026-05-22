@@ -1,5 +1,12 @@
 import {Readable, Writable, Transform} from 'node:stream';
 
+export {
+  webStreamFromArray,
+  collectWebStream,
+  webPassThrough,
+  erroringWebStream
+} from './web-helpers.js';
+
 export const streamFromArray = array =>
   new Readable({
     objectMode: true,

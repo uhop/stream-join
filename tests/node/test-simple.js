@@ -1,7 +1,7 @@
 import test from 'tape-six';
 
-import join from '../src/index.js';
-import {streamFromArray, PassThrough, streamToArrayOnce} from './helpers.js';
+import join from '../../src/index.js';
+import {streamFromArray, PassThrough, streamToArrayOnce} from '../helpers.js';
 
 test.asPromise('simple: 3 streams, default joinItems', async (t, resolve) => {
   const result = join([

@@ -1,8 +1,8 @@
 import test from 'tape-six';
 
-import pickFirst from '../src/utils/pick-first.js';
-import pickMin from '../src/utils/pick-min.js';
-import sortedInsert from '../src/utils/sorted-insert.js';
+import pickFirst from '../../src/utils/pick-first.js';
+import pickMin from '../../src/utils/pick-min.js';
+import sortedInsert from '../../src/utils/sorted-insert.js';
 
 const slot = (item, index = 0) => ({item, index});
 
