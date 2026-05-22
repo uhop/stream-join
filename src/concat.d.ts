@@ -3,8 +3,6 @@
 import {Readable, ReadableOptions} from 'node:stream';
 import {TypedReadable} from 'stream-chain/typed-streams.js';
 
-export = concat;
-
 /**
  * Concatenates N object-mode Readable streams into a single Readable, sequentially.
  * Stream 0 is fully drained, then stream 1, …, then stream N-1.
@@ -50,3 +48,11 @@ declare namespace concat {
    */
   export interface ConcatOptions extends ReadableOptions {}
 }
+
+type StreamValue<R> = concat.StreamValue<R>;
+type ConcatItemType<S extends readonly Readable[]> = concat.ConcatItemType<S>;
+type ConcatOptions = concat.ConcatOptions;
+
+export default concat;
+export {concat};
+export type {StreamValue, ConcatItemType, ConcatOptions};

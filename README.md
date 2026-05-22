@@ -3,7 +3,7 @@
 [npm-img]: https://img.shields.io/npm/v/stream-join.svg
 [npm-url]: https://npmjs.org/package/stream-join
 
-`stream-join` is a toolkit of N→1 stream combinators — functions that take an array of object-mode [Readable](https://nodejs.org/api/stream.html#stream_readable_streams) streams and return a single object-mode `Readable`, with proper [backpressure](https://nodejs.org/en/learn/modules/backpressuring-in-streams) handling. Four primitives cover the useful control-flow shapes:
+`stream-join` is a toolkit of N→1 stream combinators — functions that take an array of streams and return a single stream, with proper backpressure handling. Two flavors share a single algorithm per component: Node Streams ([`Readable`](https://nodejs.org/api/stream.html#stream_readable_streams)) via the default entry, Web Streams ([`ReadableStream`](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream)) via the `stream-join/web` subpath. Four primitives cover the useful control-flow shapes:
 
 - **`zip`** — symmetric advance: one value per non-ended stream per round, combined via `joinItems`
 - **`select`** — asymmetric advance: a user-defined `pick` chooses one slot per round from a buffer
@@ -12,7 +12,7 @@
 
 Plus a small set of helpers under [`stream-join/utils/`](#helpers) for composing common merge patterns (k-way merge of sorted streams, priority-queue merge, drift-tolerant merge).
 
-`stream-join` is a lightweight micro-package built on [`stream-chain`](https://www.npmjs.com/package/stream-chain) and [`nano-binary-search`](https://www.npmjs.com/package/nano-binary-search) — its only runtime dependencies. It is distributed under New BSD license.
+`stream-join` is a lightweight micro-package (ESM, Node 22+) built on [`stream-chain`](https://www.npmjs.com/package/stream-chain) and [`nano-binary-search`](https://www.npmjs.com/package/nano-binary-search) — its only runtime dependencies. It is distributed under New BSD license.
 
 ## Installation
 
@@ -40,11 +40,22 @@ zip([s1, s2]).on('data', data => console.log(data));
 For other patterns, import the corresponding component:
 
 ```js
-import select from 'stream-join/select';
-import race from 'stream-join/race';
-import concat from 'stream-join/concat';
-import mergeSorted from 'stream-join/utils/merge-sorted';
+import select from 'stream-join/select.js';
+import race from 'stream-join/race.js';
+import concat from 'stream-join/concat.js';
+import mergeSorted from 'stream-join/utils/merge-sorted.js';
 ```
+
+For Web Streams, swap `'stream-join'` for `'stream-join/web'`:
+
+```js
+import zip from 'stream-join/web';
+import {zip, select, race, concat} from 'stream-join/web';
+import select from 'stream-join/web/select.js';
+import mergeSorted from 'stream-join/web/utils/merge-sorted.js';
+```
+
+The Web entry expects `ReadableStream` inputs and returns a `ReadableStream` output. The algorithm, options surface, and helpers are identical to the Node side — only the I/O type changes. The Web tree pulls in no `node:stream` code, so it stays bundleable for browsers and edge runtimes.
 
 ## The four primitives
 
@@ -123,8 +134,8 @@ interface Slot<T> { item: T; index: number; }
 **Returns** an object-mode `Readable` that emits one value per round; output element type is the union of the input streams' value types; ends when every stream has exhausted or `pick` returns a stop signal; propagates input-stream `'error'` events with the original value preserved.
 
 ```js
-import select from 'stream-join/select';
-import pickMin from 'stream-join/utils/pick-min';
+import select from 'stream-join/select.js';
+import pickMin from 'stream-join/utils/pick-min.js';
 
 // Priority-queue merge: emit the smallest available value each round
 select([Readable.from([1, 4, 7]), Readable.from([2, 5, 8]), Readable.from([3, 6, 9])], {
@@ -149,7 +160,7 @@ race(streams: Readable[], options?: ReadableOptions): Readable;
 Output order is non-deterministic — it reflects how the input streams' data events interleave in the event loop.
 
 ```js
-import race from 'stream-join/race';
+import race from 'stream-join/race.js';
 
 race([logStreamA, logStreamB, logStreamC]).on('data', event => process(event));
 ```
@@ -168,7 +179,7 @@ concat(streams: Readable[], options?: ReadableOptions): Readable;
 **Returns** an object-mode `Readable` that emits stream 0's values, then stream 1's, …, then stream N-1's; output element type is the union of the input streams' value types; ends when every stream has ended; propagates input-stream `'error'` events with the original value preserved. Pullers are created lazily, one stream at a time, so later streams don't pre-buffer.
 
 ```js
-import concat from 'stream-join/concat';
+import concat from 'stream-join/concat.js';
 
 concat([part1, part2, part3]).on('data', chunk => collect(chunk));
 ```
@@ -176,10 +187,10 @@ concat([part1, part2, part3]).on('data', chunk => collect(chunk));
 ## Helpers
 
 ```js
-import pickFirst from 'stream-join/utils/pick-first';
-import pickMin from 'stream-join/utils/pick-min';
-import sortedInsert from 'stream-join/utils/sorted-insert';
-import mergeSorted from 'stream-join/utils/merge-sorted';
+import pickFirst from 'stream-join/utils/pick-first.js';
+import pickMin from 'stream-join/utils/pick-min.js';
+import sortedInsert from 'stream-join/utils/sorted-insert.js';
+import mergeSorted from 'stream-join/utils/merge-sorted.js';
 ```
 
 ### `pickFirst() → 0`
@@ -217,7 +228,7 @@ select(streams, {...options, pick: pickFirst, insert: sortedInsert(lessFn)});
 ### K-way merge of sorted streams
 
 ```js
-import mergeSorted from 'stream-join/utils/merge-sorted';
+import mergeSorted from 'stream-join/utils/merge-sorted.js';
 
 mergeSorted([sortedStream1, sortedStream2, sortedStream3], (a, b) => a.timestamp < b.timestamp).on(
   'data',
@@ -249,7 +260,7 @@ chain([
 
 ## Errors
 
-Errors from any input stream are propagated to the output's `'error'` event with the **original error value preserved**. The package's internal stream-puller listens for `'error'` directly; no `AbortError` wrapping that Node's `Readable[Symbol.asyncIterator]()` introduces.
+Errors from any input stream are propagated to the output with the **original error value preserved**. On the Node side this is the output Readable's `'error'` event; on the Web side it surfaces via the `ReadableStream` controller's `error()` signal (visible to readers as a rejected `read()`). The runtime pullers from `stream-chain` v4 are non-destructive and preserve raw error values — no `AbortError` wrapping.
 
 ## What this package is not for
 
@@ -272,7 +283,7 @@ Per-component reference and worked examples live in the [wiki](https://github.co
 
 ## Release History
 
-- 2.0.0 _Rebuilt on `stream-chain`. Requires Node 22+. Fleet-standard layout, AI docs, `tape-six` tests, JS + `.d.ts` sidecars. `skipEvents` accepted as no-op for backwards compat._
+- 2.0.0 _Multi-component package (`zip` / `select` / `race` / `concat`) rebuilt on `stream-chain` ^4.0.2. ESM-only (`"type": "module"`). Two-tree Node + Web split — `import 'stream-join'` for Node Streams, `import 'stream-join/web'` for Web Streams. Helpers under `src/utils/` (`pickFirst`, `pickMin`, `sortedInsert`, `mergeSorted`). Requires Node 22+. Fleet-standard layout, AI docs, `tape-six` tests, JS + `.d.ts` sidecars. `skipEvents` accepted as no-op for backwards compat._
 - 1.0.1 _Technical release, no need to upgrade._
 - 1.0.0 _The initial release._
 

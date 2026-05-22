@@ -1,9 +1,7 @@
-'use strict';
-
 import test from 'tape-six';
 
 import join from '../src/index.js';
-import {streamFromArray, streamToArrayOnce} from './helpers.mjs';
+import {streamFromArray, streamToArrayOnce} from './helpers.js';
 
 test.asPromise('joinItems: 3-stream concat with separator', async (t, resolve) => {
   const result = join(

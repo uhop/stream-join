@@ -2,11 +2,12 @@
   "name": "stream-join",
   "version": "2.0.0",
   "description": "Join values from multiple object-mode Readable streams into a single Readable, with proper backpressure handling.",
-  "type": "commonjs",
+  "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "exports": {
     ".": "./src/index.js",
+    "./web": "./src/web/index.js",
     "./*": "./src/*"
   },
   "engines": {
@@ -18,9 +19,9 @@
     "test:deno": "tape6-deno --flags FO",
     "ts-check": "tsc --noEmit",
     "js-check": "tsc --project tsconfig.check.json",
-    "ts-test": "tape6 --flags FO 'tests/test-*.*ts'",
-    "ts-test:bun": "tape6-bun --flags FO 'tests/test-*.*ts'",
-    "ts-test:deno": "tape6-deno --flags FO 'tests/test-*.*ts'",
+    "ts-test": "tape6 --flags FO 'tests/test-*.ts'",
+    "ts-test:bun": "tape6-bun --flags FO 'tests/test-*.ts'",
+    "ts-test:deno": "tape6-deno --flags FO 'tests/test-*.ts'",
     "lint": "prettier --check .",
     "lint:fix": "prettier --write ."
   },
@@ -57,12 +58,12 @@
   ],
   "tape6": {
     "tests": [
-      "/tests/test-*.*js"
+      "/tests/test-*.js"
     ]
   },
   "dependencies": {
     "nano-binary-search": "^1.0.14",
-    "stream-chain": "^3.6.3"
+    "stream-chain": "^4.0.2"
   },
   "devDependencies": {
     "@types/node": "^25.7.0",

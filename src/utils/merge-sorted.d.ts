@@ -3,8 +3,6 @@
 import {Readable, ReadableOptions} from 'node:stream';
 import {TypedReadable} from 'stream-chain/typed-streams.js';
 
-export = mergeSorted;
-
 /**
  * K-way merge of object-mode Readable streams using `pickFirst + sortedInsert(lessFn)`.
  * Output is sorted per `lessFn` if each input stream is itself sorted per `lessFn`.
@@ -48,3 +46,9 @@ declare namespace mergeSorted {
     windowSize?: number;
   }
 }
+
+type MergeSortedOptions = mergeSorted.MergeSortedOptions;
+
+export default mergeSorted;
+export {mergeSorted};
+export type {MergeSortedOptions};

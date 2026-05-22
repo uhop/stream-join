@@ -1,5 +1,3 @@
-export = sortedInsert;
-
 declare namespace sortedInsert {
   /**
    * An entry in the buffer the inserter mutates. Same shape as `select.Slot<T>`.
@@ -36,3 +34,9 @@ declare namespace sortedInsert {
 declare function sortedInsert<T>(
   lessFn: (a: T, b: T) => boolean
 ): (items: sortedInsert.Slot<T>[], newSlot: sortedInsert.Slot<T>, lastPos?: number) => void;
+
+type Slot<T> = sortedInsert.Slot<T>;
+
+export default sortedInsert;
+export {sortedInsert};
+export type {Slot};

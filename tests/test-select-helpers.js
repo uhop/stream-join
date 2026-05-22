@@ -1,5 +1,3 @@
-'use strict';
-
 import test from 'tape-six';
 
 import pickFirst from '../src/utils/pick-first.js';

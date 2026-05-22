@@ -1,7 +1,5 @@
 // @ts-self-types="./pick-min.d.ts"
 
-'use strict';
-
 // Linear scan for the smallest item per `lessFn`. O(items.length) per pick,
 // no allocations, branch-predictable. `lessFn` compares item *values* (not
 // slots); the helper unwraps `slot.item` internally so the same comparator
@@ -15,4 +13,5 @@ const pickMin = lessFn => items => {
   return min;
 };
 
-module.exports = pickMin;
+export default pickMin;
+export {pickMin};

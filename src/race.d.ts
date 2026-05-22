@@ -3,8 +3,6 @@
 import {Readable, ReadableOptions} from 'node:stream';
 import {TypedReadable} from 'stream-chain/typed-streams.js';
 
-export = race;
-
 /**
  * Combines N object-mode Readable streams into a single Readable by emitting values
  * from whichever input stream has data ready first.
@@ -53,3 +51,11 @@ declare namespace race {
    */
   export interface RaceOptions extends ReadableOptions {}
 }
+
+type StreamValue<R> = race.StreamValue<R>;
+type RaceItemType<S extends readonly Readable[]> = race.RaceItemType<S>;
+type RaceOptions = race.RaceOptions;
+
+export default race;
+export {race};
+export type {StreamValue, RaceItemType, RaceOptions};

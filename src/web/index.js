@@ -1,7 +1,7 @@
 // @ts-self-types="./index.d.ts"
 
-// Node entry point. Default export = `zip()` (preserves the 1.x → 2.x bridge:
-// `import join from 'stream-join'` keeps working). Named exports cover the
+// Web entry point. Default export = `zip()` (mirrors the Node entry default
+// for `import join from 'stream-join/web'`). Named exports cover the
 // multi-component surface.
 
 import zip from './zip.js';

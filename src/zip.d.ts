@@ -3,8 +3,6 @@
 import {Readable, ReadableOptions} from 'node:stream';
 import {TypedReadable} from 'stream-chain/typed-streams.js';
 
-export = zip;
-
 /**
  * Joins an array of object-mode Readable streams into a single object-mode Readable. On each
  * round, one value is pulled from every non-ended input stream; values from ended streams are
@@ -112,3 +110,15 @@ declare namespace zip {
     skipEvents?: boolean;
   }
 }
+
+type StreamValue<R> = zip.StreamValue<R>;
+type JoinItems<S extends readonly Readable[]> = zip.JoinItems<S>;
+type JoinSink<T> = zip.JoinSink<T>;
+type JoinOptions<
+  T = readonly (unknown | null)[],
+  S extends readonly Readable[] = readonly Readable[]
+> = zip.JoinOptions<T, S>;
+
+export default zip;
+export {zip};
+export type {StreamValue, JoinItems, JoinSink, JoinOptions};

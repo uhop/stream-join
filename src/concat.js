@@ -1,13 +1,14 @@
 // @ts-self-types="./concat.d.ts"
 
-'use strict';
+// Node wrapper for `concat`. Adapts `Readable[]` → puller factories via
+// stream-chain's `streamPuller` (lazy — each puller is created when its
+// stream's turn arrives), runs the shared `concatGen` factory, returns the
+// result as a Node Readable via stream-chain's `readableFrom`.
 
-const readableFrom = require('stream-chain/utils/readableFrom.js');
-const makeStreamPuller = require('./stream-puller.js');
+import readableFrom from 'stream-chain/utils/readableFrom.js';
+import makeStreamPuller from 'stream-chain/utils/streamPuller.js';
 
-// N→1 sequential concatenation: drains stream 0 fully, then stream 1, …,
-// then stream N-1. Pullers are created lazily, one at a time, so streams
-// that haven't started yet aren't buffering data prematurely.
+import concatGen from './generators/concat.js';
 
 const concat = (streams, options) => {
   if (!Array.isArray(streams) || !streams.length) {
@@ -15,28 +16,14 @@ const concat = (streams, options) => {
   }
 
   const opts = options || {};
-  const n = streams.length;
-
-  async function* generator() {
-    for (let i = 0; i < n; ++i) {
-      const puller = makeStreamPuller(streams[i]);
-      try {
-        while (true) {
-          const r = await puller.next();
-          if (r.done) break;
-          yield r.value;
-        }
-      } finally {
-        puller.close();
-      }
-    }
-  }
+  const pullerFactories = streams.map(s => () => makeStreamPuller(s));
 
   return readableFrom({
     ...opts,
-    iterable: generator,
+    iterable: concatGen(pullerFactories, opts),
     objectMode: true
   });
 };
 
-module.exports = concat;
+export default concat;
+export {concat};

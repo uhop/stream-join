@@ -1,6 +1,6 @@
 # AGENTS.md — stream-join
 
-> `stream-join` is a toolkit of N→1 stream combinators: combine values from multiple object-mode Readable streams into a single Readable, with proper backpressure handling. The package ships four primitives — `zip` (synchronous N-round combine), `select` (asymmetric advance with buffered pick), `race` (emit-as-ready), `concat` (sequential drain) — plus a small set of helpers under `src/utils/` for building common patterns (k-way merge of sorted streams, priority-queue merge, drift-tolerant merge).
+> `stream-join` is a toolkit of N→1 stream combinators: combine values from multiple streams into one, with proper backpressure handling. The package ships four primitives — `zip` (synchronous N-round combine), `select` (asymmetric advance with buffered pick), `race` (emit-as-ready), `concat` (sequential drain) — plus a small set of helpers under `src/utils/` for common merge patterns (k-way merge of sorted streams, priority-queue merge, drift-tolerant merge). Available in two flavors: Node Streams (default entry, `stream-join`) and Web Streams (`stream-join/web`).
 
 For project structure, module dependencies, and the architecture overview see [ARCHITECTURE.md](./ARCHITECTURE.md).
 For detailed usage docs and API references see the [wiki](https://github.com/uhop/stream-join/wiki).
@@ -21,7 +21,7 @@ npm install
 - **Test:** `npm test` (runs `tape6 --flags FO`)
 - **Test (Bun):** `npm run test:bun`
 - **Test (Deno):** `npm run test:deno`
-- **Test (single file):** `node tests/test-<name>.mjs`
+- **Test (single file):** `node tests/test-<name>.js`
 - **TypeScript check:** `npm run ts-check`
 - **JavaScript check (tsc --checkJs):** `npm run js-check`
 - **TypeScript tests:** `npm run ts-test`
@@ -33,49 +33,60 @@ npm install
 ```
 stream-join/
 ├── package.json              # Package config; "tape6" section configures test discovery
-├── src/                      # Source code
-│   ├── index.js              # Entry point; re-exports zip as the default
+├── src/                      # Source code (ESM, "type": "module")
+│   ├── index.js              # Node entry; default = zip, named = zip/select/race/concat
 │   ├── index.d.ts
-│   ├── zip.js                # Main component: synchronous N-round combine
+│   ├── zip.js                # Node wrapper: synchronous N-round combine
 │   ├── zip.d.ts
-│   ├── select.js             # Main component: asymmetric advance + buffered pick
+│   ├── select.js             # Node wrapper: asymmetric advance + buffered pick
 │   ├── select.d.ts
-│   ├── race.js               # Main component: emit-as-ready
+│   ├── race.js               # Node wrapper: emit-as-ready
 │   ├── race.d.ts
-│   ├── concat.js             # Main component: sequential drain
+│   ├── concat.js             # Node wrapper: sequential drain
 │   ├── concat.d.ts
-│   ├── stream-puller.js      # Internal: event-based awaitable wrapper over Readable
-│   ├── stream-puller.d.ts
-│   └── utils/                # Helpers users compose into the main components
-│       ├── pick-first.js     # Always returns 0; pair with sortedInsert
-│       ├── pick-min.js       # Linear-scan min picker
-│       ├── sorted-insert.js  # Maintains sorted order via nano-binary-search
-│       ├── merge-sorted.js   # Umbrella: select + pickFirst + sortedInsert
-│       └── *.d.ts
-├── tests/                    # Test files (test-*.mjs, test-*.cjs, test-*.mts, using tape-six)
+│   ├── generators/           # Shared runtime-neutral generator factories
+│   │   ├── zip.js, zip.d.ts
+│   │   ├── select.js, select.d.ts
+│   │   ├── race.js, race.d.ts
+│   │   └── concat.js, concat.d.ts
+│   ├── utils/                # Helpers users compose into the main components
+│   │   ├── pick-first.js     # Always returns 0; pair with sortedInsert
+│   │   ├── pick-min.js       # Linear-scan min picker
+│   │   ├── sorted-insert.js  # Maintains sorted order via nano-binary-search
+│   │   ├── merge-sorted.js   # Umbrella: select + pickFirst + sortedInsert
+│   │   └── *.d.ts
+│   └── web/                  # Web Streams variant (mirrors src/ root)
+│       ├── index.js, index.d.ts
+│       ├── zip.js, zip.d.ts
+│       ├── select.js, select.d.ts
+│       ├── race.js, race.d.ts
+│       ├── concat.js, concat.d.ts
+│       ├── from-async-iterable.js, from-async-iterable.d.ts  # Internal: portable ReadableStream.from
+│       └── utils/
+│           └── merge-sorted.js, merge-sorted.d.ts            # Web mirror of utils/merge-sorted
+├── tests/                    # Test files (test-*.js, test-*.ts, using tape-six)
 ├── dev-docs/                 # Internal design notes (not in the published tarball)
 ├── wiki/                     # GitHub wiki documentation (git submodule)
 └── .github/                  # CI workflows, Dependabot config
 ```
 
-`src/utils/` follows the fleet convention of separating helpers from main components. Main components and shared internal infrastructure live at `src/` root; everything users compose **with** those main components lives under `src/utils/`.
+The Node wrappers at `src/<comp>.js` and the Web wrappers at `src/web/<comp>.js` both import a pure, runtime-neutral generator factory from `src/generators/<comp>.js`. Helpers under `src/utils/` are pure functions, shared across both trees; `src/web/utils/merge-sorted.js` mirrors `src/utils/merge-sorted.js` against the Web `select`.
 
 ## Code style
 
-- **CommonJS** throughout (`"type": "commonjs"` in package.json).
+- **ESM** throughout (`"type": "module"` in package.json). Both source and tests use `import` / `export`.
 - **No transpilation** — code runs directly.
 - **Lambda-style functions** for stand-alone definitions that don't use `this` (`const fn = (...) => …`); `function` declarations only for generators (`function*`) and the rare `this`-dependent case.
 - **Prettier** for formatting (see `.prettierrc`): 100 char width, single quotes, no bracket spacing, no trailing commas, arrow parens "avoid".
 - 2-space indentation.
 - Semicolons are enforced by Prettier (default `semi: true`).
-- Imports use `require()` syntax in source, `import` in tests (`.mjs`).
 
 ## Critical rules
 
-- **Two runtime dependencies only: `stream-chain` and `nano-binary-search`.** Never add other packages to `dependencies`. `stream-chain` provides `readableFrom` (async-iterable → Readable conversion); `nano-binary-search` is used by `sortedInsert`. Only `devDependencies` are otherwise allowed.
-- **Built on a shared `makeStreamPuller`.** All main components read input streams via the internal `src/stream-puller.js`, which is an event-based wrapper (`stream.on('data'|'end'|'error'|'close')`) returning a Promise per `next()`. Do not use Node's `[Symbol.asyncIterator]()` on input streams — it wraps the original `'error'` value in `AbortError`, loses the cause, and behaves inconsistently across Node minor releases.
-- **Object mode is always on.** Every main component forces `objectMode: true` on its output Readable regardless of caller options.
-- **Backpressure must be handled correctly.** The puller manages per-stream pause/resume; the components yield through `readableFrom` which respects downstream demand. Do not add buffering on top.
+- **Two runtime dependencies only: `stream-chain` and `nano-binary-search`.** Never add other packages to `dependencies`. `stream-chain` v4+ provides `readableFrom` (Node-side iterable → Readable), `streamPuller` (Node Readable → async iterator), and `webStreamPuller` (Web ReadableStream → async iterator). `nano-binary-search` is used by `sortedInsert`. Only `devDependencies` are otherwise allowed.
+- **Generators are shared, wrappers are thin.** Every main component splits into a runtime-neutral generator factory at `src/generators/<comp>.js` plus two thin runtime wrappers (`src/<comp>.js` for Node, `src/web/<comp>.js` for Web). The wrapper validates inputs, builds pullers via stream-chain, calls the generator, and wraps the output. The generator does the actual work.
+- **No Node-specific stream APIs in `src/generators/` or `src/web/`.** Generators trust their puller inputs; the Web tree must stay bundleable into a browser without dragging `node:stream` in.
+- **Backpressure must be handled correctly.** The pullers manage per-stream backpressure; the components yield through `readableFrom` (Node) or `fromAsyncIterable` (Web) which both respect downstream demand. Do not add buffering on top.
 - **Do not modify or delete test expectations** without understanding why they changed.
 - **Do not add comments or remove comments** unless explicitly asked.
 - **Keep `.js` and `.d.ts` files in sync** for every source file. All public API has a hand-written `.d.ts` sidecar with the `// @ts-self-types="./X.d.ts"` directive at the top of the `.js`.
@@ -88,12 +99,12 @@ stream-join/
 - **`race(streams, options)`** — pulls one item from each stream in parallel; `Promise.race` selects whichever resolves first; emits that value and restarts the pull on its source. No buffering across rounds.
 - **`concat(streams, options)`** — drains stream 0 fully, then stream 1, …, then stream N-1. Pullers are created lazily, one per stream, so future streams aren't pre-buffering.
 - **Helpers under `src/utils/`:** `pickFirst` (always 0), `pickMin(lessFn)` (linear scan), `sortedInsert(lessFn)` (binary-search-based, with smart replace-or-splice when the new slot belongs at the same position as the removed one), `mergeSorted(streams, lessFn, opts?)` (umbrella combining `select` + `pickFirst` + `sortedInsert`).
-- **`makeStreamPuller(stream)`** — internal. Returns `{next, close}` where `next()` resolves to `{value, done}` and propagates original error values. Used by all four main components.
+- **Pullers (from stream-chain):** Node `streamPuller(stream)` wraps a `Readable` as an async iterator via `stream.iterator({destroyOnReturn: false})`; Web `webStreamPuller(stream)` wraps a `ReadableStream` via `stream[Symbol.asyncIterator]({preventCancel: true})`. Both preserve original error values and survive consumer-side early exit.
 
 ## Verification commands
 
 - `npm test` — run the full test suite (parallel workers)
-- `node tests/test-<name>.mjs` — run a single test file directly
+- `node tests/test-<name>.js` — run a single test file directly
 - `npm run test:bun` — run with Bun
 - `npm run test:deno` — run with Deno
 - `npm run ts-check` — TypeScript type checking
@@ -104,11 +115,13 @@ stream-join/
 
 ## File layout
 
-- Entry point: `src/index.js` + `src/index.d.ts` (re-exports `zip` as the default for back-compat with 1.x naming).
-- Main components: `src/zip.js`, `src/select.js`, `src/race.js`, `src/concat.js` (each with its `.d.ts`).
-- Internal infrastructure: `src/stream-puller.js`.
-- Helpers: `src/utils/*.js` (each with its `.d.ts`).
-- Tests: `tests/test-*.mjs`, `tests/test-*.cjs`, `tests/test-*.mts`, `tests/helpers.mjs`.
+- Node entry: `src/index.js` + `src/index.d.ts` (default export = `zip`; preserves the 1.x → 2.x bridge).
+- Web entry: `src/web/index.js` + `src/web/index.d.ts` (default export = `zip` for Web Streams).
+- Node wrappers: `src/zip.js`, `src/select.js`, `src/race.js`, `src/concat.js` (each with `.d.ts`).
+- Web wrappers: `src/web/zip.js`, `src/web/select.js`, `src/web/race.js`, `src/web/concat.js` (each with `.d.ts`).
+- Shared generators: `src/generators/{zip,select,race,concat}.{js,d.ts}` — pure factories, no runtime imports.
+- Helpers: `src/utils/*.{js,d.ts}` (pure; shared between trees). Web mirror at `src/web/utils/merge-sorted.{js,d.ts}`.
+- Tests: `tests/test-*.js` (functional), `tests/test-web.js` (Web Streams variant), `tests/test-typings-join.ts` (typing), `tests/helpers.js`.
 - Design notes: `dev-docs/*.md` (internal; not in the published tarball).
 - Wiki docs: `wiki/` (git submodule).
 
@@ -117,5 +130,5 @@ stream-join/
 - Start with `ARCHITECTURE.md` for the module map and dependency graph.
 - Each main component's `.d.ts` is the canonical API reference for that component.
 - `dev-docs/select-design.md` captures the design intent behind `select` and the helper layer.
-- The `tests/` files demonstrate every supported usage pattern; `test-select.mjs`, `test-race.mjs`, and `test-concat.mjs` are good starting points.
+- The `tests/` files demonstrate every supported usage pattern; `test-select.js`, `test-race.js`, and `test-concat.js` are good starting points. `test-web.js` exercises the Web Streams variant end-to-end.
 - Wiki markdown files in `wiki/` contain detailed usage docs.

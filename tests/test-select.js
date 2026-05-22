@@ -1,5 +1,3 @@
-'use strict';
-
 import test from 'tape-six';
 
 import select from '../src/select.js';
@@ -8,7 +6,7 @@ import pickMin from '../src/utils/pick-min.js';
 import sortedInsert from '../src/utils/sorted-insert.js';
 import mergeSorted from '../src/utils/merge-sorted.js';
 
-import {streamFromArray, streamToArrayOnce} from './helpers.mjs';
+import {streamFromArray, streamToArrayOnce} from './helpers.js';
 
 test.asPromise(
   'select: smoke — pickFirst with default insert exhausts streams in order',

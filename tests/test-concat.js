@@ -1,12 +1,10 @@
-'use strict';
-
 import test from 'tape-six';
 
 import {Readable} from 'node:stream';
 
 import concat from '../src/concat.js';
 
-import {streamFromArray, streamToArrayOnce} from './helpers.mjs';
+import {streamFromArray, streamToArrayOnce} from './helpers.js';
 
 test.asPromise('concat: drains streams in input order', async (t, resolve) => {
   const result = concat([

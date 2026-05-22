@@ -1,11 +1,12 @@
 # stream-join
 
-> A toolkit of N→1 stream combinators for object-mode Node Readable streams. Four primitives — `zip`, `select`, `race`, `concat` — cover the useful control-flow shapes. A small helper layer under `utils/` composes them into common merge patterns (k-way merge of sorted streams, priority-queue merge, drift-tolerant merge). Built on `stream-chain` and sibling to the rest of the `object-stream` family.
+> A toolkit of N→1 stream combinators with Node Streams **and** Web Streams flavors. Four primitives — `zip`, `select`, `race`, `concat` — cover the useful control-flow shapes. A small helper layer under `utils/` composes them into common merge patterns (k-way merge of sorted streams, priority-queue merge, drift-tolerant merge). Built on `stream-chain` ^4.0.2 and sibling to the rest of the `object-stream` family.
 
-- Two runtime deps: `stream-chain` (provides `readableFrom`), `nano-binary-search` (used by `sortedInsert`).
-- Node 22+. CommonJS package, consumable from both CJS and ESM consumers.
-- All main components produce an `objectMode: true` Readable.
-- All input-stream reads go through an internal event-based puller — original `'error'` values are preserved (no `AbortError` wrapping).
+- Two runtime deps: `stream-chain` (^4.0.2, provides `readableFrom`, `streamPuller`, `webStreamPuller`) and `nano-binary-search` (used by `sortedInsert`).
+- ESM-only (`"type": "module"`). Node 22+.
+- Node-side entry (`stream-join`) returns `Readable` (always `objectMode: true`). Web-side entry (`stream-join/web`) returns `ReadableStream`.
+- Each component is a thin wrapper over a shared runtime-neutral generator factory in `src/generators/`. The algorithm lives once; the two trees adapt their runtime's stream type to the same async-iterator pullers.
+- Input-stream reads go through stream-chain v4's `streamPuller` (Node) / `webStreamPuller` (Web). Both preserve original `'error'` values and survive consumer-side early exit.
 
 ## Quick start
 
@@ -27,25 +28,30 @@ zip([s1, s2]).on('data', x => console.log(x));
 ## Importing
 
 ```js
-// Default = zip (back-compat with 1.x naming `join`)
+// Node default = zip (back-compat with 1.x naming `join`)
 import zip from 'stream-join';
-const zip = require('stream-join');
-const join = require('stream-join'); // same function
+import {zip, select, race, concat} from 'stream-join';
 
-// Each main component as its own subpath
-import zip from 'stream-join/zip';
-import select from 'stream-join/select';
-import race from 'stream-join/race';
-import concat from 'stream-join/concat';
+// Per-component subpaths (Node side)
+import zip from 'stream-join/zip.js';
+import select from 'stream-join/select.js';
+import race from 'stream-join/race.js';
+import concat from 'stream-join/concat.js';
 
-// Helpers
-import pickFirst from 'stream-join/utils/pick-first';
-import pickMin from 'stream-join/utils/pick-min';
-import sortedInsert from 'stream-join/utils/sorted-insert';
-import mergeSorted from 'stream-join/utils/merge-sorted';
+// Web Streams variant — same names, ReadableStream in/out
+import zip from 'stream-join/web';
+import {zip, select, race, concat} from 'stream-join/web';
+import select from 'stream-join/web/select.js';
+
+// Helpers (Node + Web share the picker / insert primitives; merge-sorted has a Web mirror)
+import pickFirst from 'stream-join/utils/pick-first.js';
+import pickMin from 'stream-join/utils/pick-min.js';
+import sortedInsert from 'stream-join/utils/sorted-insert.js';
+import mergeSorted from 'stream-join/utils/merge-sorted.js';        // Node merge
+import mergeSorted from 'stream-join/web/utils/merge-sorted.js';    // Web merge
 ```
 
-The package is `"type": "commonjs"` and ships a CJS entry; Node 22+ consumes it from both ESM and CJS without ceremony.
+The package is ESM-only (`"type": "module"`); subpath imports take the explicit `.js` extension.
 
 ## API — main components
 
@@ -140,9 +146,9 @@ Examples:
 
 ```js
 // K-way merge of sorted streams
-const select = require('stream-join/select');
-const pickFirst = require('stream-join/utils/pick-first');
-const sortedInsert = require('stream-join/utils/sorted-insert');
+import select from 'stream-join/select.js';
+import pickFirst from 'stream-join/utils/pick-first.js';
+import sortedInsert from 'stream-join/utils/sorted-insert.js';
 
 select([s1, s2, s3], {
   pick: pickFirst,
@@ -157,7 +163,7 @@ select([s1, s2], {
 });
 
 // Priority-queue merge with default insert (replace at lastPos)
-const pickMin = require('stream-join/utils/pick-min');
+import pickMin from 'stream-join/utils/pick-min.js';
 select([s1, s2, s3], {pick: pickMin((a, b) => a.priority < b.priority)});
 
 // Early termination
@@ -193,7 +199,7 @@ Returns a `TypedReadable<union of input value types>` that emits values in event
 Example:
 
 ```js
-const race = require('stream-join/race');
+import race from 'stream-join/race.js';
 
 race([logStreamA, logStreamB, logStreamC]).on('data', event => process(event));
 // Whichever stream produces an event first gets that event emitted first.
@@ -222,7 +228,7 @@ Returns a `TypedReadable<union of input value types>` emitting stream 0's values
 Example:
 
 ```js
-const concat = require('stream-join/concat');
+import concat from 'stream-join/concat.js';
 
 concat([part1, part2, part3]).on('data', chunk => out.push(chunk));
 // All of part1, then all of part2, then all of part3.
@@ -331,7 +337,7 @@ Returns a `TypedReadable<T>` emitting the merged sequence in sorted order per `l
 Example:
 
 ```js
-const mergeSorted = require('stream-join/utils/merge-sorted');
+import mergeSorted from 'stream-join/utils/merge-sorted.js';
 
 mergeSorted(
   [Readable.from([1, 4, 7]), Readable.from([2, 5, 8]), Readable.from([3, 6, 9])],
@@ -346,19 +352,40 @@ Pass `windowSize` via `options` for drift tolerance:
 mergeSorted([s1, s2], (a, b) => a < b, {windowSize: 4});
 ```
 
-## The internal puller (`makeStreamPuller`)
+## Web Streams variant
 
-All four main components share `src/stream-puller.js` for reading from input streams. It's an event-based wrapper that turns a Readable into an awaitable: `{next, close}` where `next()` returns `Promise<{value, done}>`. Backpressure via per-stream pause/resume; original `'error'` values are propagated directly (no `AbortError` wrap).
+The `stream-join/web` subpath mirrors the Node side for `ReadableStream` consumers — same algorithm, same options, same helpers, only the I/O type changes:
 
-**Not part of the public API.** The contract may change between minor releases. Components consume it internally; callers should use the four main components.
+```js
+import zip from 'stream-join/web';
+
+const out = zip([webReadable1, webReadable2]); // ReadableStream<[T1, T2]>
+const reader = out.getReader();
+for (;;) {
+  const {value, done} = await reader.read();
+  if (done) break;
+  process(value);
+}
+```
+
+The Web tree pulls in no `node:stream` code, so it stays bundleable for browsers and edge runtimes. The four wrappers — `web/zip.js`, `web/select.js`, `web/race.js`, `web/concat.js` — adapt `ReadableStream` inputs via `stream-chain/utils/webStreamPuller.js`, share the same generator factories with the Node side (`src/generators/`), and wrap the output via an internal `fromAsyncIterable` shim (a portable equivalent of `ReadableStream.from` for runtimes that don't yet ship the static method).
+
+## Pullers (from `stream-chain` v4)
+
+The Node and Web wrappers read input streams through `stream-chain` v4's pullers:
+
+- **Node:** `streamPuller(stream)` is `stream.iterator({destroyOnReturn: false})` — preserves the original `'error'` value (no `AbortError` wrap), surfaces premature destroy as `Error('Premature close')`, and survives consumer-side early exit (`break` out of `for await` doesn't destroy the source).
+- **Web:** `webStreamPuller(stream)` is `stream[Symbol.asyncIterator]({preventCancel: true})` plus an explicit `cancel(reason)` method (the iterator protocol's `return()` can't convey a cancel reason cleanly).
+
+Both satisfy the standard `AsyncIterator<T>` shape, so the runtime-neutral generators in `src/generators/<comp>.js` consume them through the same interface.
 
 ## Composition with stream-chain
 
-Every main component returns a plain Readable, so it composes as the first item in a `stream-chain` pipeline:
+Every Node-side component returns a plain Readable, so it composes as the first item in a `stream-chain` pipeline:
 
 ```js
-const chain = require('stream-chain');
-const mergeSorted = require('stream-join/utils/merge-sorted');
+import chain from 'stream-chain';
+import mergeSorted from 'stream-join/utils/merge-sorted.js';
 
 chain([
   mergeSorted([s1, s2, s3], (a, b) => a.timestamp < b.timestamp),
@@ -368,11 +395,11 @@ chain([
 ]);
 ```
 
+The Web-side components likewise produce a `ReadableStream` and can be piped with the standard `.pipeTo(...)` / `.pipeThrough(...)` API.
+
 ## Error handling
 
-If any input stream emits `'error'` while a main component is consuming it, the error is propagated to the output's `'error'` event with the **original value preserved**. The internal puller listens for `'error'` directly and surfaces the value through its Promise rejection; the component's generator throws the error, `readableFrom` catches it and destroys the output with the same error.
-
-This was a subtle deficiency of the 2.0.0 implementation, which used `Readable[Symbol.asyncIterator]()` and worked around the `AbortError` wrap with a side-listener hack. The 2.x puller-based implementation drops the workaround — original errors flow naturally.
+If any input stream errors while a main component is consuming it, the error is propagated to the output with the **original value preserved**. On the Node side this surfaces as the output Readable's `'error'` event; on the Web side it appears via the output `ReadableStream`'s controller `error()` (visible to readers as a rejected `read()`). The runtime pullers from `stream-chain` v4 are non-destructive and preserve raw error values — no `AbortError` wrapping.
 
 ## What is NOT in stream-join
 
@@ -383,12 +410,14 @@ This was a subtle deficiency of the 2.0.0 implementation, which used `Readable[S
 
 ## Notable changes 1.x → 2.x
 
-- **Built on `stream-chain`** — a runtime dependency now (was zero-dep in 1.x).
+- **ESM-only** (`"type": "module"`). 1.x was CommonJS.
+- **Built on `stream-chain`** ^4.0.2 — a runtime dependency now (was zero-dep in 1.x). The 4.x line provides the runtime pullers (`streamPuller`, `webStreamPuller`) the components consume.
 - **Node 22+** required.
 - **Multi-component package.** 1.x exported a single function. 2.x exports four (`zip`, `select`, `race`, `concat`) plus helpers under `utils/`.
-- **Internal puller is event-based, not `[Symbol.asyncIterator]()`.** Original `'error'` values are propagated.
+- **Web Streams variant** at `stream-join/web` — same surface, same algorithm, `ReadableStream` in/out.
+- **Default export** remains the `zip` function (formerly named `join` in 1.x); `import zip from 'stream-join'` returns it for back-compat.
 - **`skipEvents` option** from 1.x is accepted as a no-op.
-- **Default export** remains the `zip` function (formerly named `join` in 1.x); `require('stream-join')` returns it for back-compat.
+- The package's previous in-tree `src/stream-puller.js` was removed — its job moved into `stream-chain` v4 as `streamPuller` / `webStreamPuller`.
 
 ## Links
 

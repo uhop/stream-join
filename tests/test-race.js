@@ -1,12 +1,10 @@
-'use strict';
-
 import test from 'tape-six';
 
 import {Readable} from 'node:stream';
 
 import race from '../src/race.js';
 
-import {streamFromArray, streamToArrayOnce} from './helpers.mjs';
+import {streamFromArray, streamToArrayOnce} from './helpers.js';
 
 // Helper: stream that emits one item per setTimeout tick, controlled per-item.
 const tickStream = (items, delayMsPerItem) =>

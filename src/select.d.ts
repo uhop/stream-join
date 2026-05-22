@@ -3,8 +3,6 @@
 import {Readable, ReadableOptions} from 'node:stream';
 import {TypedReadable} from 'stream-chain/typed-streams.js';
 
-export = select;
-
 /**
  * Combines N object-mode Readable streams into a single Readable by selecting one of N currently
  * buffered slots per round, emitting it, refilling that slot from its source stream, and looping
@@ -121,3 +119,12 @@ declare namespace select {
     windowSize?: number;
   }
 }
+
+type StreamValue<R> = select.StreamValue<R>;
+type SlotItemType<S extends readonly Readable[]> = select.SlotItemType<S>;
+type Slot<T> = select.Slot<T>;
+type SelectOptions<S extends readonly Readable[] = readonly Readable[]> = select.SelectOptions<S>;
+
+export default select;
+export {select};
+export type {StreamValue, SlotItemType, Slot, SelectOptions};

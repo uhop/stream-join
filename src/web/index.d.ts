@@ -1,6 +1,4 @@
-/// <reference types="node" />
-
-// Node entry point types. Default export = `zip`; named exports add `select`,
+// Web entry point types. Default export = `zip`; named exports add `select`,
 // `race`, `concat`.
 
 import zip from './zip.js';

@@ -1,5 +1,3 @@
-export = pickMin;
-
 declare namespace pickMin {
   /**
    * An entry in the buffer the picker sees. Same shape as `select.Slot<T>`.
@@ -30,3 +28,9 @@ declare namespace pickMin {
 declare function pickMin<T>(
   lessFn: (a: T, b: T) => boolean
 ): (items: readonly pickMin.Slot<T>[]) => number;
+
+type Slot<T> = pickMin.Slot<T>;
+
+export default pickMin;
+export {pickMin};
+export type {Slot};

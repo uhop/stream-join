@@ -1,13 +1,6 @@
 // @ts-self-types="./sorted-insert.d.ts"
 
-'use strict';
-
-// nano-binary-search is ESM-only with a default export; Node 22+ supports
-// `require()` of ESM modules (the `require(esm)` capability), so this works
-// at runtime. TypeScript's static analysis is conservative and emits TS1479;
-// suppressed deliberately.
-// @ts-expect-error TS1479 — require(esm) is supported by Node 22+
-const binarySearch = require('nano-binary-search').default;
+import binarySearch from 'nano-binary-search';
 
 // Maintains `items` in sorted order per `lessFn`. Smart-replace optimization:
 // when the new slot belongs at the same logical position as the just-removed
@@ -55,4 +48,5 @@ const sortedInsert = lessFn => (items, newSlot, lastPos) => {
   }
 };
 
-module.exports = sortedInsert;
+export default sortedInsert;
+export {sortedInsert};

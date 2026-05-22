@@ -1,10 +1,8 @@
 // @ts-self-types="./merge-sorted.d.ts"
 
-'use strict';
-
-const select = require('../select.js');
-const pickFirst = require('./pick-first.js');
-const sortedInsert = require('./sorted-insert.js');
+import select from '../select.js';
+import pickFirst from './pick-first.js';
+import sortedInsert from './sorted-insert.js';
 
 // Headline k-way-merge helper: wires `pickFirst + sortedInsert(lessFn)` so the
 // output is a sorted merge of the input streams. With `windowSize > 1` the
@@ -20,4 +18,5 @@ const mergeSorted = (streams, lessFn, options) =>
     insert: sortedInsert(lessFn)
   });
 
-module.exports = mergeSorted;
+export default mergeSorted;
+export {mergeSorted};

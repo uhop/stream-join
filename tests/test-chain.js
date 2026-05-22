@@ -1,11 +1,9 @@
-'use strict';
-
 import test from 'tape-six';
 
 import chain from 'stream-chain';
 
 import join from '../src/index.js';
-import {streamFromArray, streamToArrayOnce} from './helpers.mjs';
+import {streamFromArray, streamToArrayOnce} from './helpers.js';
 
 test.asPromise('chain: join output feeds a chain pipeline', async (t, resolve) => {
   const pipeline = chain([

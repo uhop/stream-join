@@ -1,5 +1,3 @@
-'use strict';
-
 import {Readable, Writable, Transform} from 'node:stream';
 
 export const streamFromArray = array =>
