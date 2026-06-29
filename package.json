@@ -80,7 +80,7 @@
     "stream-chain": "^4.2.2"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.0.1",
     "prettier": "^3.8.3",
     "tape-six": "^1.10.1",
     "tape-six-playwright": "^1.1.0",
