@@ -88,7 +88,7 @@ The Node wrappers at `src/<comp>.js` and the Web wrappers at `src/web/<comp>.js`
 - **No Node-specific stream APIs in `src/generators/` or `src/web/`.** Generators trust their puller inputs; the Web tree must stay bundleable into a browser without dragging `node:stream` in.
 - **Backpressure must be handled correctly.** The pullers manage per-stream backpressure; the components yield through `readableFrom` (Node) or `fromAsyncIterable` (Web) which both respect downstream demand. Do not add buffering on top.
 - **Do not modify or delete test expectations** without understanding why they changed.
-- **Do not add comments or remove comments** unless explicitly asked.
+- **Comments are _why_-markers only** — a non-trivial decision or constraint, an algorithm reference, or explicitly requested JSDoc; never narrate _what_ the code does (fleet convention `no-narrating-comments`).
 - **Keep `.js` and `.d.ts` files in sync** for every source file. All public API has a hand-written `.d.ts` sidecar with the `// @ts-self-types="./X.d.ts"` directive at the top of the `.js`.
 - **Helpers live under `src/utils/`.** Main components and shared infrastructure stay at `src/` root.
 

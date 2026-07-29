@@ -8,6 +8,6 @@ import zip from './zip.js';
 
 export default zip;
 export {zip};
-export {default as select} from './select.js';
-export {default as race} from './race.js';
-export {default as concat} from './concat.js';
+export {select} from './select.js';
+export {race} from './race.js';
+export {concat} from './concat.js';

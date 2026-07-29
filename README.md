@@ -297,7 +297,7 @@ Errors from any input stream are propagated to the output with the **original er
 
 ## Documentation
 
-Per-component reference and worked examples live in the [wiki](https://github.com/uhop/stream-join/wiki):
+Per-component reference and worked examples live in the **[wiki](https://github.com/uhop/stream-join/wiki)** — browse the [index](https://github.com/uhop/stream-join/wiki/Home), or [search it](https://uhop.github.io/wiki-search/app/?wiki=uhop/stream-join) by name:
 
 - [zip](https://github.com/uhop/stream-join/wiki/zip)
 - [select](https://github.com/uhop/stream-join/wiki/select)
