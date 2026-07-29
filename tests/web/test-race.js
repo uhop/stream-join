@@ -3,26 +3,6 @@ import test from 'tape-six';
 import race from '../../src/web/race.js';
 import {webStreamFromArray, collectWebStream, erroringWebStream} from '../web-helpers.js';
 
-// Web ReadableStream that emits one item per setTimeout tick.
-const tickWebStream = (items, delayMsPerItem) => {
-  let i = 0;
-  return new ReadableStream({
-    pull(controller) {
-      if (i >= items.length) {
-        controller.close();
-        return;
-      }
-      const j = i++;
-      return new Promise(resolve => {
-        setTimeout(() => {
-          controller.enqueue(items[j]);
-          resolve();
-        }, delayMsPerItem);
-      });
-    }
-  });
-};
-
 test.asPromise('race: emits all values from all streams', async (t, resolve) => {
   const result = race([webStreamFromArray([1, 2, 3]), webStreamFromArray([10, 20, 30])]);
   const output = await collectWebStream(result);
@@ -31,14 +11,32 @@ test.asPromise('race: emits all values from all streams', async (t, resolve) => 
   resolve();
 });
 
-test.asPromise('race: respects stream timing — faster stream emits first', async (t, resolve) => {
-  const result = race([tickWebStream(['a1', 'a2', 'a3'], 1), tickWebStream(['b1'], 50)]);
-  const output = await collectWebStream(result);
-  t.equal(output.length, 4);
-  const b1Pos = output.indexOf('b1');
-  t.equal(b1Pos, 3, 'b1 appears last because its stream is slower');
-  resolve();
-});
+test.asPromise(
+  'race: respects stream readiness — pending stream emits last',
+  async (t, resolve) => {
+    // Causality gate, not timers — see the Node twin in tests/node/test-race.js.
+    let releaseB;
+    const gate = new Promise(r => (releaseB = r));
+    const b = new ReadableStream({
+      async pull(controller) {
+        await gate;
+        controller.enqueue('b1');
+        controller.close();
+      }
+    });
+    const result = race([webStreamFromArray(['a1', 'a2', 'a3']), b]);
+    const output = [];
+    const reader = result.getReader();
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      output.push(value);
+      if (value === 'a3') releaseB();
+    }
+    t.deepEqual(output, ['a1', 'a2', 'a3', 'b1']);
+    resolve();
+  }
+);
 
 test.asPromise('race: single stream just passes values through', async (t, resolve) => {
   const result = race([webStreamFromArray([1, 2, 3])]);
